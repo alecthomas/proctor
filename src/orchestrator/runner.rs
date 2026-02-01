@@ -163,6 +163,7 @@ mod tests {
             watch_patterns: vec![],
             options: ProcessOptions::default(),
             command: command.to_string(),
+            oneshot: true,
         }
     }
 
@@ -211,6 +212,7 @@ mod tests {
                 ..Default::default()
             },
             command: "pwd".to_string(),
+            oneshot: true,
         };
 
         let base = std::env::current_dir().unwrap();

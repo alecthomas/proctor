@@ -1,7 +1,8 @@
 pub mod runner;
 
 use crate::output::OutputFormatter;
-use crate::parser::Procfile;
+use crate::parser::{Procfile, ReadyProbe};
+use crate::readiness;
 use runner::{ProcessOutput, RunningProcess, spawn_process};
 use std::collections::HashSet;
 use std::io;
@@ -17,9 +18,12 @@ struct ManagedProcess {
     name: String,
     process: RunningProcess,
     output: ProcessOutput,
+    ready_probe: Option<ReadyProbe>,
+    is_ready: bool,
+    is_oneshot: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessStatus {
     Success,
     Failed(i32),
@@ -65,11 +69,25 @@ impl Orchestrator {
                 io::Error::new(io::ErrorKind::Other, "failed to capture process output")
             })?;
 
+            let is_oneshot = def.oneshot;
+            let ready_probe = def.options.ready.clone();
+
+            // If no probe and long-running (not oneshot), it's ready immediately
+            let is_ready = ready_probe.is_none() && !is_oneshot;
+
             processes.push(ManagedProcess {
                 name: def.name.clone(),
                 process: running,
                 output,
+                ready_probe,
+                is_ready,
+                is_oneshot,
             });
+
+            if is_ready {
+                let msg = formatter.format_control(&def.name, "Ready (started)");
+                println!("{}", msg);
+            }
         }
 
         let poll_interval = Duration::from_millis(10);
@@ -88,6 +106,18 @@ impl Orchestrator {
                     continue;
                 }
 
+                // Check readiness probe if not yet ready
+                if !managed.is_ready {
+                    if let Some(ref probe) = managed.ready_probe {
+                        if readiness::is_ready(probe) {
+                            managed.is_ready = true;
+                            let msg =
+                                formatter.format_control(&managed.name, "Ready (probe passed)");
+                            println!("{}", msg);
+                        }
+                    }
+                }
+
                 // Check for exit
                 if let Ok(Some(exit_status)) = managed.process.child.try_wait() {
                     let status = exit_status_to_process_status(&exit_status);
@@ -96,6 +126,16 @@ impl Orchestrator {
                     while let Some(line) = managed.output.try_recv() {
                         let formatted = formatter.format(&line);
                         println!("{}", formatted);
+                    }
+
+                    // One-shot processes become ready on successful exit
+                    if managed.is_oneshot && !managed.is_ready {
+                        if status == ProcessStatus::Success {
+                            managed.is_ready = true;
+                            let msg = formatter
+                                .format_control(&managed.name, "Ready (exited successfully)");
+                            println!("{}", msg);
+                        }
                     }
 
                     let msg = match status {
@@ -147,6 +187,7 @@ mod tests {
                     watch_patterns: vec![],
                     options: ProcessOptions::default(),
                     command: cmd.to_string(),
+                    oneshot: true,
                 })
                 .collect(),
         }

@@ -9,7 +9,7 @@ Proctor is a local development process manager that extends the Procfile format 
 ### Line format
 
 ```
-<proc> [!]<glob>... [option=value ...]: [ENV=VALUE ...] <command>
+<proc>[!] [!]<glob>... [option=value ...]: [ENV=VALUE ...] <command>
 ```
 
 Each line defines a process. The colon (`:`) separates the **declaration** (left) from the **execution** (right). Tokenisation uses shell-style rules throughout: bare words, `'single quoted'` (literal), and `"double quoted"` (with escape sequences).
@@ -33,6 +33,13 @@ api **/*.go: go run \
 ### Process name
 
 The first token is always the process name. It must be unique within the file. Valid characters: `[a-zA-Z0-9_-]`.
+
+A trailing `!` marks the process as **one-shot** (expected to run to completion and exit). Without the `!`, processes are assumed to be **long-running** (expected to stay alive).
+
+```
+migrate!: just db migrate    # one-shot: ready when it exits 0
+api: go run ./cmd/api        # long-running: ready immediately on start
+```
 
 ### Glob patterns
 
@@ -79,10 +86,10 @@ api: go run ./cmd/api 2>&1 | grep -v healthcheck
 
 ### Classification
 
-Processes are classified based on context:
+Processes are classified by the `!` suffix on their name:
 
-- **One-shot**: A process with no glob patterns. These are expected to run to completion.
-- **Long-running**: A process with glob patterns, or a process that does not exit on its own. These are expected to stay alive.
+- **One-shot** (`name!`): Expected to run to completion and exit. Becomes ready when it exits with code 0.
+- **Long-running** (`name`): Expected to stay alive. Becomes ready immediately on start (unless a `ready` probe is specified).
 
 ### Startup order
 
@@ -166,9 +173,9 @@ Stderr lines are prefixed identically but rendered in a dimmed or italic variant
 ## File Format Summary
 
 ```
-# Setup
-init: just db init
-migrate after=init: just db migrate
+# Setup (one-shot tasks)
+init!: just db init
+migrate! after=init: just db migrate
 
 # Infrastructure
 redis: redis-server

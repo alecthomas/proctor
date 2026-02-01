@@ -90,8 +90,14 @@ fn parse_line(line: &str, line_num: usize) -> Result<ProcessDef, ParseError> {
         message: format!("failed to parse command: {}", e),
     })?;
 
-    // Parse declaration tokens
-    let name = decl_tokens[0].clone();
+    // Parse declaration tokens - check for oneshot suffix (name!)
+    let raw_name = &decl_tokens[0];
+    let (name, oneshot) = if let Some(n) = raw_name.strip_suffix('!') {
+        (n.to_string(), true)
+    } else {
+        (raw_name.clone(), false)
+    };
+
     if !is_valid_name(&name) {
         return Err(ParseError {
             line: line_num,
@@ -140,6 +146,7 @@ fn parse_line(line: &str, line_num: usize) -> Result<ProcessDef, ParseError> {
         watch_patterns,
         options,
         command: command_part,
+        oneshot,
     })
 }
 
@@ -328,6 +335,16 @@ mod tests {
         assert_eq!(procfile.processes.len(), 1);
         assert_eq!(procfile.processes[0].name, "api");
         assert_eq!(procfile.processes[0].command, "go run ./cmd/api");
+        assert!(!procfile.processes[0].oneshot);
+    }
+
+    #[test]
+    fn test_oneshot_process() {
+        let input = "migrate!: just db migrate";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes.len(), 1);
+        assert_eq!(procfile.processes[0].name, "migrate");
+        assert!(procfile.processes[0].oneshot);
     }
 
     #[test]

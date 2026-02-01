@@ -37,6 +37,7 @@
       "text": "Process lifecycle and execution",
       "priority": "high",
       "creation": 1769937674,
+      "completion": 1769943008,
       "tasks": [
         {
           "text": "Spawn process via shell with env vars and working dir",
@@ -116,26 +117,31 @@
       "text": "Output formatting",
       "priority": "high",
       "creation": 1769940750,
+      "completion": 1769943008,
       "tasks": [
         {
           "text": "Prefix lines with process name",
           "priority": "medium",
-          "creation": 1769940755
+          "creation": 1769940755,
+          "completion": 1769943008
         },
         {
           "text": "Right-align prefixes to longest name",
           "priority": "medium",
-          "creation": 1769940756
+          "creation": 1769940756,
+          "completion": 1769943008
         },
         {
           "text": "Deterministic colour from name hash (256-colour palette)",
           "priority": "medium",
-          "creation": 1769940757
+          "creation": 1769940757,
+          "completion": 1769943008
         },
         {
           "text": "Dimmed/italic variant for stderr",
           "priority": "medium",
-          "creation": 1769940758
+          "creation": 1769940758,
+          "completion": 1769943008
         }
       ]
     },
@@ -143,26 +149,31 @@
       "text": "Readiness probes",
       "priority": "high",
       "creation": 1769937688,
+      "completion": 1769943576,
       "tasks": [
         {
           "text": "TCP probe (poll localhost:port)",
           "priority": "medium",
-          "creation": 1769937690
+          "creation": 1769937690,
+          "completion": 1769943158
         },
         {
           "text": "HTTP probe (poll for 2xx response)",
           "priority": "medium",
-          "creation": 1769937691
+          "creation": 1769937691,
+          "completion": 1769943158
         },
         {
           "text": "Default readiness (immediate for long-running, exit 0 for one-shot)",
           "priority": "medium",
-          "creation": 1769937692
+          "creation": 1769937692,
+          "completion": 1769943158
         },
         {
           "text": "250ms poll interval, 30s timeout",
           "priority": "medium",
-          "creation": 1769937693
+          "creation": 1769937693,
+          "completion": 1769943158
         }
       ]
     },

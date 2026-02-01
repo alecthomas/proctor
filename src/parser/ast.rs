@@ -11,6 +11,9 @@ pub struct ProcessDef {
     pub watch_patterns: Vec<GlobPattern>,
     pub options: ProcessOptions,
     pub command: String,
+    /// If true, this process is expected to run to completion (one-shot).
+    /// If false, it's expected to stay alive (long-running).
+    pub oneshot: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
