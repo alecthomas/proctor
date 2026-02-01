@@ -1,2 +1,4 @@
 
-echo Procfile: echo "Hello, world!"; echo "Goodbye!" >&2; sleep 100
+echo Procfile: echo "Hello!"; sleep 2
+moo Procfile: echo "Moo!"; sleep 3
+chicken Procfile: echo "Chicken!"; sleep 4

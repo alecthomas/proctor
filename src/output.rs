@@ -3,6 +3,37 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use yansi::{Color, Paint};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlEvent {
+    Ready,
+    Finished,
+    Stopped,
+    Crashed,
+    Restarting,
+}
+
+impl ControlEvent {
+    fn symbol(&self) -> &'static str {
+        match self {
+            ControlEvent::Ready => "●",
+            ControlEvent::Finished => "✔",
+            ControlEvent::Stopped => "☠",
+            ControlEvent::Crashed => "↯",
+            ControlEvent::Restarting => "↻",
+        }
+    }
+
+    fn color(&self) -> Color {
+        match self {
+            ControlEvent::Ready => Color::Green,
+            ControlEvent::Finished => Color::Green,
+            ControlEvent::Stopped => Color::Red,
+            ControlEvent::Crashed => Color::Red,
+            ControlEvent::Restarting => Color::Yellow,
+        }
+    }
+}
+
 /// Selects a color from the 256-color palette based on a hash of the name.
 /// Excludes colors that are too dark (0-16) or too light (grayscale 232-255).
 fn color_for_name(name: &str) -> Color {
@@ -10,17 +41,27 @@ fn color_for_name(name: &str) -> Color {
     name.hash(&mut hasher);
     let hash = hasher.finish();
 
-    // Use colors 17-231 (the 6x6x6 color cube), avoiding the darkest and lightest
-    // Skip colors where all RGB components are 0 or 5 (too dark/light)
+    // Use colors 17-231 (the 6x6x6 color cube), avoiding problematic colors
     let usable_colors: Vec<u8> = (17u8..=231)
         .filter(|&c| {
             let idx = c - 16;
             let r = idx / 36;
             let g = (idx % 36) / 6;
             let b = idx % 6;
-            // Exclude very dark (sum < 3) and very light (sum > 12)
             let sum = r + g + b;
-            sum >= 3 && sum <= 12
+            // Exclude very dark (sum < 4) and very light (sum > 11)
+            if sum < 4 || sum > 11 {
+                return false;
+            }
+            // Exclude reddish colors (r dominant) - they look like errors
+            if r >= 3 && r > g && r > b {
+                return false;
+            }
+            // Exclude dark blues/purples (b dominant with low g)
+            if b >= 3 && g <= 1 && r <= 1 {
+                return false;
+            }
+            true
         })
         .collect();
 
@@ -40,7 +81,7 @@ impl OutputFormatter {
 
     pub fn format(&self, line: &OutputLine) -> String {
         let color = color_for_name(&line.process);
-        let prefix = format!("{:>width$} |", line.process, width = self.max_name_len);
+        let prefix = format!("{:>width$} │", line.process, width = self.max_name_len);
 
         let styled_prefix = prefix.paint(color);
 
@@ -50,20 +91,16 @@ impl OutputFormatter {
         }
     }
 
-    pub fn format_control(&self, process: &str, message: &str) -> String {
-        let color = color_for_name(process);
-        let prefix = format!("{:>width$} |", process, width = self.max_name_len);
-        let styled_prefix = prefix.paint(color);
-        let styled_message = message.bold();
-
-        format!("{} {}", styled_prefix, styled_message)
-    }
-
-    pub fn format_error(&self, process: &str, message: &str) -> String {
-        let color = color_for_name(process);
-        let prefix = format!("{:>width$} |", process, width = self.max_name_len);
-        let styled_prefix = prefix.paint(color);
-        let styled_message = message.paint(Color::Red).bold();
+    pub fn format_control(&self, process: &str, event: ControlEvent, message: &str) -> String {
+        let process_color = color_for_name(process);
+        let prefix = format!(
+            "{:>width$} {}",
+            process,
+            event.symbol(),
+            width = self.max_name_len
+        );
+        let styled_prefix = prefix.paint(process_color);
+        let styled_message = message.paint(event.color());
 
         format!("{} {}", styled_prefix, styled_message)
     }
@@ -103,7 +140,7 @@ mod tests {
         // "frontend" is 8 chars, so "api" should be padded to 8
         // The output contains ANSI codes, so we check the structure
         assert!(output.contains("api"));
-        assert!(output.contains("|"));
+        assert!(output.contains("│"));
         assert!(output.contains("hello"));
     }
 

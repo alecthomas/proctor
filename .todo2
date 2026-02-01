@@ -255,12 +255,14 @@
         {
           "text": "Handle SIGINT/SIGTERM to proctor",
           "priority": "medium",
-          "creation": 1769937715
+          "creation": 1769937715,
+          "completion": 1769948778
         },
         {
           "text": "Signal processes in reverse dependency order",
           "priority": "medium",
-          "creation": 1769937715
+          "creation": 1769937715,
+          "completion": 1769948809
         },
         {
           "text": "Wait shutdown duration, then SIGKILL",
@@ -288,6 +290,11 @@
           "text": "Track readiness and unblock dependents",
           "priority": "medium",
           "creation": 1769940769
+        },
+        {
+          "text": "Signal processes in reverse dependency order",
+          "priority": "medium",
+          "creation": 1769948803
         }
       ]
     }
