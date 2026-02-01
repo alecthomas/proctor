@@ -7,8 +7,29 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+const SYNTAX_HELP: &str = "\
+PROCFILE SYNTAX:
+  <name>[!] [pattern...] [option=value...]: [ENV=VAR...] <command>
+
+  name!         One-shot process (ready on exit 0)
+  name          Long-running process (ready on start)
+  **/*.go       Watch pattern (glob syntax, triggers reload)
+  !vendor/**    Exclusion pattern
+
+OPTIONS:
+  after=name[,name2]   Wait for dependencies before starting
+  ready=tcp://PORT     Readiness probe (tcp:// or http://)
+  signal=TERM          Reload signal (HUP, INT, TERM, KILL, USR1, USR2)
+  debounce=500ms       File watch debounce interval
+  dir=./path           Working directory
+  shutdown=5s          Grace period before SIGKILL
+
+EXAMPLE:
+  migrate! after=db: just db migrate
+  api **/*.go !**_test.go after=migrate ready=tcp://8080: go run ./cmd/api";
+
 #[derive(Parser)]
-#[command(name = "proctor", about = "A process manager with hot reload")]
+#[command(name = "proctor", about = "A process manager with hot reload", after_help = SYNTAX_HELP)]
 struct Cli {
     /// Path to the Procfile
     #[arg(default_value = "Procfile")]

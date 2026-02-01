@@ -18,7 +18,7 @@ impl ControlEvent {
             ControlEvent::Ready => "●",
             ControlEvent::Finished => "✔",
             ControlEvent::Stopped => "☠",
-            ControlEvent::Crashed => "↯",
+            ControlEvent::Crashed => "✘",
             ControlEvent::Restarting => "↻",
         }
     }

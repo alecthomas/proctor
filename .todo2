@@ -251,6 +251,7 @@
       "text": "Graceful shutdown",
       "priority": "high",
       "creation": 1769937712,
+      "completion": 1769949206,
       "tasks": [
         {
           "text": "Handle SIGINT/SIGTERM to proctor",
@@ -267,7 +268,8 @@
         {
           "text": "Wait shutdown duration, then SIGKILL",
           "priority": "medium",
-          "creation": 1769937716
+          "creation": 1769937716,
+          "completion": 1769948923
         }
       ]
     },
@@ -275,26 +277,31 @@
       "text": "Dependency graph and startup ordering",
       "priority": "high",
       "creation": 1769940765,
+      "completion": 1769950216,
       "tasks": [
         {
           "text": "Build DAG from after= declarations",
           "priority": "medium",
-          "creation": 1769940767
+          "creation": 1769940767,
+          "completion": 1769949305
         },
         {
           "text": "Start processes with no deps concurrently",
           "priority": "medium",
-          "creation": 1769940768
+          "creation": 1769940768,
+          "completion": 1769949607
         },
         {
           "text": "Track readiness and unblock dependents",
           "priority": "medium",
-          "creation": 1769940769
+          "creation": 1769940769,
+          "completion": 1769950096
         },
         {
           "text": "Signal processes in reverse dependency order",
           "priority": "medium",
-          "creation": 1769948803
+          "creation": 1769948803,
+          "completion": 1769950207
         }
       ]
     }

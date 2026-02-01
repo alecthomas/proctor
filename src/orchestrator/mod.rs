@@ -1,9 +1,11 @@
+mod graph;
 pub mod runner;
 mod watcher;
 
 use crate::output::{ControlEvent, OutputFormatter};
 use crate::parser::{ProcessDef, Procfile, Signal};
 use crate::readiness;
+use graph::DependencyGraph;
 use runner::{ProcessOutput, RunningProcess, spawn_process};
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
@@ -66,6 +68,7 @@ struct ManagedProcess {
     process: Option<RunningProcess>,
     output: Option<ProcessOutput>,
     is_ready: bool,
+    started: bool, // Has this process been started at least once?
     reloading: bool,
     reload_signal_sent: Option<Instant>,
     reload_path: Option<String>,
@@ -83,6 +86,7 @@ impl ManagedProcess {
             process: None,
             output: None,
             is_ready: false,
+            started: false,
             reloading: false,
             reload_signal_sent: None,
             reload_path: None,
@@ -147,6 +151,53 @@ impl Orchestrator {
         Self { procfile, base_dir }
     }
 
+    /// Start any processes whose dependencies are now all satisfied.
+    fn start_ready_dependents(
+        &self,
+        processes: &mut HashMap<String, ManagedProcess>,
+        graph: &DependencyGraph,
+        formatter: &OutputFormatter,
+        guard: &mut ShutdownGuard,
+    ) {
+        // Find processes that haven't started but whose dependencies are all ready
+        // Collect (name, deps) so we can show what we were waiting for
+        let to_start: Vec<(String, Vec<String>)> = processes
+            .iter()
+            .filter(|(_, m)| !m.started)
+            .filter(|(name, _)| {
+                graph
+                    .dependencies_of(name)
+                    .iter()
+                    .all(|dep| processes.get(*dep).map(|m| m.is_ready).unwrap_or(false))
+            })
+            .map(|(name, _)| {
+                let deps: Vec<String> = graph
+                    .dependencies_of(name)
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                (name.clone(), deps)
+            })
+            .collect();
+
+        for (name, deps) in to_start {
+            let after = if deps.is_empty() {
+                None
+            } else {
+                Some(deps.join(", "))
+            };
+            if let Err(e) = self.spawn_managed(processes, &name, formatter, guard, after.as_deref())
+            {
+                let msg = formatter.format_control(
+                    &name,
+                    ControlEvent::Crashed,
+                    &format!("failed to start: {}", e),
+                );
+                println!("{}", msg);
+            }
+        }
+    }
+
     pub fn run(&self) -> io::Result<()> {
         if self.procfile.processes.is_empty() {
             return Ok(());
@@ -179,12 +230,20 @@ impl Orchestrator {
             processes.insert(def.name.clone(), ManagedProcess::new(def.clone()));
         }
 
+        // Build dependency graph
+        let graph = DependencyGraph::new(
+            self.procfile
+                .processes
+                .iter()
+                .map(|p| (p.name.as_str(), p.options.after.as_slice())),
+        );
+
         // Guard to ensure cleanup on panic
         let mut guard = ShutdownGuard::new();
 
-        // Spawn all processes
-        for def in &self.procfile.processes {
-            self.spawn_managed(&mut processes, &def.name, &formatter, &mut guard)?;
+        // Spawn only root processes (those with no dependencies)
+        for name in graph.roots() {
+            self.spawn_managed(&mut processes, name, &formatter, &mut guard, None)?;
         }
 
         // Set up file watcher if any process has watch patterns
@@ -222,26 +281,51 @@ impl Orchestrator {
 
         // Shutdown state
         let mut shutting_down = false;
-        let mut shutdown_started: Option<Instant> = None;
+        // Track which processes have been signaled during shutdown (in order)
+        let shutdown_order: Vec<String> = graph
+            .reverse_topological_order()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut shutdown_signaled: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         loop {
             // Check for shutdown signal
             if !shutting_down && shutdown_flag.load(Ordering::SeqCst) {
                 shutting_down = true;
-                shutdown_started = Some(Instant::now());
+            }
 
-                // Send SIGTERM to all running processes
-                for managed in processes.values_mut() {
-                    if let Some(ref proc) = managed.process {
-                        let msg = formatter.format_control(
-                            &managed.def.name,
-                            ControlEvent::Stopped,
-                            "kill -TERM",
-                        );
-                        println!("{}", msg);
-                        let _ = proc.signal(Signal::Term);
-                        managed.reload_signal_sent = Some(Instant::now());
+            // During shutdown: signal processes in reverse dependency order
+            // Only signal a process once all its dependents have exited
+            if shutting_down {
+                for name in &shutdown_order {
+                    if shutdown_signaled.contains(name) {
+                        continue;
                     }
+                    // Check if all dependents have exited
+                    let dependents_exited = graph
+                        .dependents_of(name)
+                        .iter()
+                        .all(|dep| !processes.get(*dep).map(|m| m.is_running()).unwrap_or(false));
+
+                    if !dependents_exited {
+                        continue;
+                    }
+
+                    if let Some(managed) = processes.get_mut(name) {
+                        if let Some(ref proc) = managed.process {
+                            let msg = formatter.format_control(
+                                &managed.def.name,
+                                ControlEvent::Stopped,
+                                "kill -TERM",
+                            );
+                            println!("{}", msg);
+                            let _ = proc.signal(Signal::Term);
+                            managed.reload_signal_sent = Some(Instant::now());
+                        }
+                    }
+                    shutdown_signaled.insert(name.clone());
                 }
             }
             // Collect output from all processes
@@ -272,6 +356,9 @@ impl Orchestrator {
                     }
                 }
             }
+
+            // Start any processes whose dependencies are now satisfied
+            self.start_ready_dependents(&mut processes, &graph, &formatter, &mut guard);
 
             // Gradually decrease backoff level while running stably
             // If running for the duration of the current backoff level, decrease by one level
@@ -343,7 +430,7 @@ impl Orchestrator {
                     let msg = formatter.format_control(&name, ControlEvent::Restarting, &path);
                     println!("{}", msg);
                     if let Err(e) =
-                        self.spawn_managed(&mut processes, &name, &formatter, &mut guard)
+                        self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None)
                     {
                         let msg = formatter.format_control(
                             &name,
@@ -359,8 +446,12 @@ impl Orchestrator {
                     let restart_time = Instant::now() + backoff;
                     managed.scheduled_restart = Some(restart_time);
 
-                    let msg =
-                        formatter.format_control(&name, ControlEvent::Crashed, &status.to_string());
+                    let detail = if status == ProcessStatus::Success {
+                        format!("{} (unexpectedly)", status)
+                    } else {
+                        status.to_string()
+                    };
+                    let msg = formatter.format_control(&name, ControlEvent::Crashed, &detail);
                     println!("{}", msg);
 
                     let msg = if backoff.is_zero() {
@@ -385,6 +476,11 @@ impl Orchestrator {
                 }
             }
 
+            // Start any dependents whose dependencies became ready (e.g., one-shot exit)
+            if !shutting_down {
+                self.start_ready_dependents(&mut processes, &graph, &formatter, &mut guard);
+            }
+
             // Handle scheduled restarts (crash recovery)
             if !shutting_down {
                 let names_to_restart: Vec<String> = processes
@@ -401,7 +497,7 @@ impl Orchestrator {
 
                 for name in names_to_restart {
                     if let Err(e) =
-                        self.spawn_managed(&mut processes, &name, &formatter, &mut guard)
+                        self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None)
                     {
                         let msg = formatter.format_control(
                             &name,
@@ -420,11 +516,11 @@ impl Orchestrator {
                     break;
                 }
 
-                // Check shutdown timeout - SIGKILL stragglers
-                if let Some(started) = shutdown_started {
-                    let max_shutdown = Duration::from_secs(5);
-                    if Instant::now().duration_since(started) >= max_shutdown {
-                        for managed in processes.values_mut() {
+                // Check per-process shutdown timeout - SIGKILL stragglers individually
+                let now = Instant::now();
+                for managed in processes.values_mut() {
+                    if let Some(signal_time) = managed.reload_signal_sent {
+                        if now.duration_since(signal_time) >= managed.def.options.shutdown {
                             if let Some(ref proc) = managed.process {
                                 let msg = formatter.format_control(
                                     &managed.def.name,
@@ -433,6 +529,8 @@ impl Orchestrator {
                                 );
                                 println!("{}", msg);
                                 let _ = proc.kill();
+                                // Clear signal_sent to avoid repeated SIGKILL attempts
+                                managed.reload_signal_sent = None;
                             }
                         }
                     }
@@ -517,6 +615,7 @@ impl Orchestrator {
         name: &str,
         formatter: &OutputFormatter,
         guard: &mut ShutdownGuard,
+        after: Option<&str>,
     ) -> io::Result<()> {
         let managed = processes.get_mut(name).ok_or_else(|| {
             io::Error::new(
@@ -542,12 +641,17 @@ impl Orchestrator {
         managed.process = Some(running);
         managed.output = Some(output);
         managed.is_ready = is_ready;
+        managed.started = true;
         managed.last_start_time = Some(Instant::now());
         managed.scheduled_restart = None;
         managed.last_backoff_decrease = None;
 
         if is_ready {
-            let msg = formatter.format_control(name, ControlEvent::Ready, "started");
+            let detail = match after {
+                Some(dep) => format!("started (after {})", dep),
+                None => "started".to_string(),
+            };
+            let msg = formatter.format_control(name, ControlEvent::Ready, &detail);
             println!("{}", msg);
         }
 
