@@ -1,1 +1,2 @@
-echo: echo "Hello, world!"; exit 1
+
+echo ./Procfile: echo "Hello, world!"; sleep 100

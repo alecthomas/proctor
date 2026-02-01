@@ -181,31 +181,37 @@
       "text": "File watching and hot reload",
       "priority": "high",
       "creation": 1769937695,
+      "completion": 1769943946,
       "tasks": [
         {
           "text": "Watch files matching glob patterns",
           "priority": "medium",
-          "creation": 1769937698
+          "creation": 1769937698,
+          "completion": 1769943946
         },
         {
           "text": "Apply exclusion patterns",
           "priority": "medium",
-          "creation": 1769937699
+          "creation": 1769937699,
+          "completion": 1769943946
         },
         {
           "text": "Debounce file change events",
           "priority": "medium",
-          "creation": 1769937700
+          "creation": 1769937700,
+          "completion": 1769943946
         },
         {
           "text": "Signal process, wait shutdown duration, SIGKILL if needed",
           "priority": "medium",
-          "creation": 1769937701
+          "creation": 1769937701,
+          "completion": 1769943946
         },
         {
           "text": "Restart process after reload",
           "priority": "medium",
-          "creation": 1769937701
+          "creation": 1769937701,
+          "completion": 1769943946
         }
       ]
     },
