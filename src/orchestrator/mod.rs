@@ -602,24 +602,44 @@ impl Orchestrator {
                     debouncer.record_event(&event.process, &event.path);
                 }
 
+                // Collect one-shots to re-run (to avoid borrow conflicts)
+                let mut oneshots_to_rerun: Vec<(String, String)> = Vec::new();
+
                 for (name, path) in debouncer.get_ready() {
-                    if let Some(managed) = processes.get_mut(&name)
-                        && managed.is_running()
-                        && !managed.reloading
-                    {
-                        managed.reloading = true;
-                        managed.reload_signal_sent = Some(Instant::now());
-                        managed.reload_path = Some(path);
-                        let signal = managed.def.options.signal;
-                        if let Some(ref proc) = managed.process {
-                            let msg = formatter.format_control(
-                                &name,
-                                ControlEvent::Restarting,
-                                &format!("kill -{}", signal_name_short(signal)),
-                            );
-                            println!("{}", msg);
-                            let _ = proc.signal(signal);
+                    if let Some(managed) = processes.get_mut(&name) {
+                        if managed.is_running() && !managed.reloading {
+                            // Running process: signal and restart
+                            managed.reloading = true;
+                            managed.reload_signal_sent = Some(Instant::now());
+                            managed.reload_path = Some(path);
+                            let signal = managed.def.options.signal;
+                            if let Some(ref proc) = managed.process {
+                                let msg = formatter.format_control(
+                                    &name,
+                                    ControlEvent::Restarting,
+                                    &format!("kill -{}", signal_name_short(signal)),
+                                );
+                                println!("{}", msg);
+                                let _ = proc.signal(signal);
+                            }
+                        } else if !managed.is_running() && managed.def.oneshot && managed.started {
+                            // Completed one-shot: queue for re-run
+                            oneshots_to_rerun.push((name.clone(), path));
                         }
+                    }
+                }
+
+                // Re-run completed one-shots
+                for (name, path) in oneshots_to_rerun {
+                    let msg = formatter.format_control(&name, ControlEvent::Restarting, &path);
+                    println!("{}", msg);
+                    if let Err(e) = self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
+                        let msg = formatter.format_control(
+                            &name,
+                            ControlEvent::Crashed,
+                            &format!("failed to restart: {}", e),
+                        );
+                        println!("{}", msg);
                     }
                 }
             }

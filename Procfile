@@ -1,5 +1,5 @@
 
-echo! ready=8080: echo "Hello"
+echo! README.md: echo "Hello"
 src-server dir=src ready=http:8999:
     echo "Starting Caddy"
     caddy file-server --listen localhost:8999 2>&1 | \

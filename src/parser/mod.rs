@@ -201,31 +201,11 @@ fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<
     }
 
     // Validate option combinations
-    if oneshot {
-        if options.ready.is_some() {
-            return Err(ParseError {
-                line: line_num,
-                message: "one-shot processes cannot have a ready probe (they become ready on exit)".to_string(),
-            });
-        }
-        if !watch_patterns.is_empty() {
-            return Err(ParseError {
-                line: line_num,
-                message: "one-shot processes cannot have watch patterns (nothing to reload)".to_string(),
-            });
-        }
-        if options.signal != Signal::Term {
-            return Err(ParseError {
-                line: line_num,
-                message: "one-shot processes cannot have a custom signal (nothing to reload)".to_string(),
-            });
-        }
-        if options.debounce != Duration::from_millis(500) {
-            return Err(ParseError {
-                line: line_num,
-                message: "one-shot processes cannot have a custom debounce (no file watching)".to_string(),
-            });
-        }
+    if oneshot && options.ready.is_some() {
+        return Err(ParseError {
+            line: line_num,
+            message: "one-shot processes cannot have a ready probe (they become ready on exit)".to_string(),
+        });
     }
 
     Ok(ProcessDef {
@@ -552,24 +532,18 @@ worker: go run ./cmd/worker
     }
 
     #[test]
-    fn test_oneshot_with_watch_patterns_error() {
-        let input = "migrate! **/*.sql: just db migrate";
-        let err = parse(input).unwrap_err();
-        assert!(err.message.contains("one-shot") && err.message.contains("watch"));
-    }
-
-    #[test]
-    fn test_oneshot_with_signal_error() {
-        let input = "migrate! signal=HUP: just db migrate";
-        let err = parse(input).unwrap_err();
-        assert!(err.message.contains("one-shot") && err.message.contains("signal"));
-    }
-
-    #[test]
-    fn test_oneshot_with_debounce_error() {
-        let input = "migrate! debounce=1s: just db migrate";
-        let err = parse(input).unwrap_err();
-        assert!(err.message.contains("one-shot") && err.message.contains("debounce"));
+    fn test_oneshot_with_watch_patterns() {
+        let input = "migrate! **/*.sql !**/test_*.sql debounce=1s signal=INT: just db migrate";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes.len(), 1);
+        assert!(procfile.processes[0].oneshot);
+        assert_eq!(procfile.processes[0].watch_patterns.len(), 2);
+        assert_eq!(procfile.processes[0].watch_patterns[0].pattern, "**/*.sql");
+        assert!(!procfile.processes[0].watch_patterns[0].exclude);
+        assert_eq!(procfile.processes[0].watch_patterns[1].pattern, "**/test_*.sql");
+        assert!(procfile.processes[0].watch_patterns[1].exclude);
+        assert_eq!(procfile.processes[0].options.debounce, Duration::from_secs(1));
+        assert_eq!(procfile.processes[0].options.signal, Signal::Int);
     }
 
     #[test]

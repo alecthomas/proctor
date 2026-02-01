@@ -27,6 +27,9 @@ migrate! dir=./db:
     psql -f schema.sql
     psql -f seeds.sql
 
+# One-shot with file watching: re-run codegen when schema changes
+codegen! **/*.graphql debounce=1s: npm run codegen
+
 # Long-running infrastructure with TCP readiness probe
 postgres ready=5432: docker run --rm -p 5432:5432 postgres:16
 
@@ -136,13 +139,7 @@ Any token matching `key=value` that is not a glob and not the process name is an
 
 Multiple dependencies can be specified with comma separation: `after=redis,migrate`.
 
-**Option restrictions for one-shot processes:** Since one-shot processes run to completion and exit, the following options are not permitted and will cause a parse error:
-- `ready` — one-shot processes become ready when they exit 0
-- `signal` — there is no reload to signal
-- `debounce` — there is no file watching
-- Watch patterns — there is nothing to reload
-
-The `after`, `dir`, and `shutdown` options remain valid for one-shot processes.
+**Note on one-shot processes:** The `ready` option is not permitted for one-shot processes since they become ready when they exit 0. All other options are valid, including watch patterns (to re-run the one-shot when files change).
 
 ## Execution (right of `:`)
 
@@ -180,10 +177,9 @@ If a one-shot process exits non-zero, startup is aborted and all running process
 When a file change matches a process's glob patterns (after exclusions):
 
 1. Debounce: wait for the configured debounce interval with no further matching changes.
-2. Send the configured signal (default `SIGTERM`) to the process group.
-3. Wait up to `shutdown` duration for the process to exit.
-4. If still running after the grace period, send `SIGKILL`.
-5. Restart the process.
+2. For running processes: send the configured signal (default `SIGTERM`) to the process group, wait up to `shutdown` duration, then `SIGKILL` if needed.
+3. For completed one-shot processes: start immediately.
+4. Restart the process.
 
 ### Restart on crash
 
