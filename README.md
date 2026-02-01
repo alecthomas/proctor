@@ -1,8 +1,22 @@
-# A Procfile-compatible process manager with hot reload, readiness probes and dependencies
+# A Procfile-compatible process manager with hot reload, readiness probes, dependencies, and more
 
 ## Overview
 
-Proctor is a local development process manager that is compatible with and extends the Procfile format with file watching, hot reload, dependency ordering, and coloured log prefixing. It aims to replace ad-hoc combinations of `foreman`, `watchexec`, and shell scripts with a single declarative file.
+Proctor is a local development process manager that is compatible with and extends the Procfile format. It aims to replace ad-hoc combinations of `foreman`, `watchexec`, and shell scripts with a single declarative file.
+
+**Features:**
+
+- Procfile-compatible syntax with shell-style quoting and line continuation
+- One-shot processes (run to completion) and long-running processes
+- File watching with glob patterns and exclusions
+- Hot reload on file changes with configurable debounce and signal
+- Process dependencies with `after=` for ordered startup
+- Readiness probes (TCP port or HTTP endpoint)
+- Automatic restart on crash with exponential backoff
+- Graceful shutdown in reverse dependency order
+- Per-process environment variables and working directory
+- Coloured, aligned log output with optional timestamps
+- Multiline command blocks
 
 ## Installation
 
