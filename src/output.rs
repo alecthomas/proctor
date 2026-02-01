@@ -10,6 +10,7 @@ pub enum ControlEvent {
     Stopped,
     Crashed,
     Restarting,
+    TimedOut,
 }
 
 impl ControlEvent {
@@ -20,6 +21,7 @@ impl ControlEvent {
             ControlEvent::Stopped => "☠",
             ControlEvent::Crashed => "✘",
             ControlEvent::Restarting => "↻",
+            ControlEvent::TimedOut => "⏱",
         }
     }
 
@@ -30,6 +32,7 @@ impl ControlEvent {
             ControlEvent::Stopped => Color::Red,
             ControlEvent::Crashed => Color::Red,
             ControlEvent::Restarting => Color::Yellow,
+            ControlEvent::TimedOut => Color::Red,
         }
     }
 }

@@ -115,7 +115,7 @@ When a file change matches a process's glob patterns (after exclusions):
 If a long-running process exits unexpectedly (not due to a reload or shutdown):
 
 - Restart immediately on first failure.
-- Apply exponential backoff on consecutive failures: 1s, 2s, 4s, 8s, capped at 30s.
+- Apply exponential backoff on consecutive failures: 1s, 2s, 4s, 8s, 16s, capped at 32s.
 - Reset the backoff counter after 60s of successful running.
 - Log each restart with the exit code or signal.
 

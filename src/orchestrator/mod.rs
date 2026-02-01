@@ -68,6 +68,7 @@ struct ManagedProcess {
     process: Option<RunningProcess>,
     output: Option<ProcessOutput>,
     is_ready: bool,
+    ready_probe_started: Option<Instant>,
     started: bool, // Has this process been started at least once?
     reloading: bool,
     reload_signal_sent: Option<Instant>,
@@ -86,6 +87,7 @@ impl ManagedProcess {
             process: None,
             output: None,
             is_ready: false,
+            ready_probe_started: None,
             started: false,
             reloading: false,
             reload_signal_sent: None,
@@ -105,9 +107,9 @@ impl ManagedProcess {
         if failures == 0 {
             Duration::ZERO
         } else {
-            // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (capped)
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s (capped)
             let secs = 1u64 << (failures - 1).min(5);
-            Duration::from_secs(secs.min(30))
+            Duration::from_secs(secs)
         }
     }
 
@@ -339,20 +341,38 @@ impl Orchestrator {
             }
 
             // Check readiness probes
+            let probe_timeout = Duration::from_secs(30);
             for managed in processes.values_mut() {
                 if managed.is_ready || !managed.is_running() {
                     continue;
                 }
 
                 if let Some(ref probe) = managed.def.options.ready {
+                    // Start tracking probe time if not already
+                    if managed.ready_probe_started.is_none() {
+                        managed.ready_probe_started = Some(Instant::now());
+                    }
+
                     if readiness::is_ready(probe) {
                         managed.is_ready = true;
+                        managed.ready_probe_started = None;
                         let msg = formatter.format_control(
                             &managed.def.name,
                             ControlEvent::Ready,
                             "probe passed",
                         );
                         println!("{}", msg);
+                    } else if let Some(started) = managed.ready_probe_started {
+                        if started.elapsed() >= probe_timeout {
+                            managed.ready_probe_started = None;
+                            let msg = formatter.format_control(
+                                &managed.def.name,
+                                ControlEvent::TimedOut,
+                                "probe timed out after 30s  (aborting)",
+                            );
+                            println!("{}", msg);
+                            shutting_down = true;
+                        }
                     }
                 }
             }
@@ -415,6 +435,17 @@ impl Orchestrator {
                 } else {
                     false
                 };
+
+                // One-shot process failure aborts startup
+                if managed.def.oneshot && status != ProcessStatus::Success && !shutting_down {
+                    let msg = formatter.format_control(
+                        &name,
+                        ControlEvent::Crashed,
+                        &format!("{} (aborting) ", status),
+                    );
+                    println!("{}", msg);
+                    shutting_down = true;
+                }
 
                 // Clean up
                 managed.process = None;
@@ -774,11 +805,11 @@ mod tests {
         managed.consecutive_failures = 5;
         assert_eq!(managed.calculate_backoff(), Duration::from_secs(16));
 
-        // Sixth+ failure = 30s (capped)
+        // Sixth+ failure = 32s (capped)
         managed.consecutive_failures = 6;
-        assert_eq!(managed.calculate_backoff(), Duration::from_secs(30));
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(32));
 
         managed.consecutive_failures = 10;
-        assert_eq!(managed.calculate_backoff(), Duration::from_secs(30));
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(32));
     }
 }
