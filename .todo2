@@ -55,6 +55,55 @@
           "priority": "medium",
           "creation": 1769937678,
           "completion": 1769941318
+        },
+        {
+          "text": "Create output formatting module (src/output.rs)",
+          "priority": "high",
+          "creation": 1769942437,
+          "completion": 1769942524
+        },
+        {
+          "text": "Deterministic color from process name hash (256-color palette)",
+          "priority": "medium",
+          "creation": 1769942440,
+          "completion": 1769942524
+        },
+        {
+          "text": "Right-align prefixes to longest process name",
+          "priority": "medium",
+          "creation": 1769942440,
+          "completion": 1769942524
+        },
+        {
+          "text": "Dimmed/italic variant for stderr lines",
+          "priority": "medium",
+          "creation": 1769942441,
+          "completion": 1769942524
+        },
+        {
+          "text": "Create orchestrator module (src/orchestrator.rs)",
+          "priority": "high",
+          "creation": 1769942442
+        },
+        {
+          "text": "Spawn all processes concurrently (no deps yet)",
+          "priority": "medium",
+          "creation": 1769942443
+        },
+        {
+          "text": "Collect and format output from all processes",
+          "priority": "medium",
+          "creation": 1769942444
+        },
+        {
+          "text": "Detect process exit and log status",
+          "priority": "medium",
+          "creation": 1769942444
+        },
+        {
+          "text": "Wire up main.rs to use orchestrator",
+          "priority": "high",
+          "creation": 1769942445
         }
       ]
     },
