@@ -1,0 +1,217 @@
+{
+  "title": "",
+  "tasks": [
+    {
+      "text": "Procfile Parser (tokenizer, AST, line continuation, options, globs)",
+      "priority": "high",
+      "creation": 1769937509,
+      "completion": 1769937567
+    },
+    {
+      "text": "CLI interface",
+      "priority": "high",
+      "creation": 1769937560,
+      "completion": 1769940323,
+      "tasks": [
+        {
+          "text": "Parse CLI args (Procfile path, options)",
+          "priority": "medium",
+          "creation": 1769937563,
+          "completion": 1769938114
+        },
+        {
+          "text": "Load and validate Procfile",
+          "priority": "medium",
+          "creation": 1769937563,
+          "completion": 1769938114
+        },
+        {
+          "text": "Main event loop orchestrating all components",
+          "priority": "medium",
+          "creation": 1769937564,
+          "completion": 1769938114
+        }
+      ]
+    },
+    {
+      "text": "Process lifecycle and execution",
+      "priority": "high",
+      "creation": 1769937674,
+      "tasks": [
+        {
+          "text": "Spawn process via shell with env vars and working dir",
+          "priority": "medium",
+          "creation": 1769937677,
+          "completion": 1769940925
+        },
+        {
+          "text": "Process group management (for signaling)",
+          "priority": "medium",
+          "creation": 1769937677
+        },
+        {
+          "text": "Capture stdout/stderr streams",
+          "priority": "medium",
+          "creation": 1769937678
+        }
+      ]
+    },
+    {
+      "text": "Output formatting",
+      "priority": "high",
+      "creation": 1769940750,
+      "tasks": [
+        {
+          "text": "Prefix lines with process name",
+          "priority": "medium",
+          "creation": 1769940755
+        },
+        {
+          "text": "Right-align prefixes to longest name",
+          "priority": "medium",
+          "creation": 1769940756
+        },
+        {
+          "text": "Deterministic colour from name hash (256-colour palette)",
+          "priority": "medium",
+          "creation": 1769940757
+        },
+        {
+          "text": "Dimmed/italic variant for stderr",
+          "priority": "medium",
+          "creation": 1769940758
+        }
+      ]
+    },
+    {
+      "text": "Readiness probes",
+      "priority": "high",
+      "creation": 1769937688,
+      "tasks": [
+        {
+          "text": "TCP probe (poll localhost:port)",
+          "priority": "medium",
+          "creation": 1769937690
+        },
+        {
+          "text": "HTTP probe (poll for 2xx response)",
+          "priority": "medium",
+          "creation": 1769937691
+        },
+        {
+          "text": "Default readiness (immediate for long-running, exit 0 for one-shot)",
+          "priority": "medium",
+          "creation": 1769937692
+        },
+        {
+          "text": "250ms poll interval, 30s timeout",
+          "priority": "medium",
+          "creation": 1769937693
+        }
+      ]
+    },
+    {
+      "text": "File watching and hot reload",
+      "priority": "high",
+      "creation": 1769937695,
+      "tasks": [
+        {
+          "text": "Watch files matching glob patterns",
+          "priority": "medium",
+          "creation": 1769937698
+        },
+        {
+          "text": "Apply exclusion patterns",
+          "priority": "medium",
+          "creation": 1769937699
+        },
+        {
+          "text": "Debounce file change events",
+          "priority": "medium",
+          "creation": 1769937700
+        },
+        {
+          "text": "Signal process, wait shutdown duration, SIGKILL if needed",
+          "priority": "medium",
+          "creation": 1769937701
+        },
+        {
+          "text": "Restart process after reload",
+          "priority": "medium",
+          "creation": 1769937701
+        }
+      ]
+    },
+    {
+      "text": "Crash recovery and restart",
+      "priority": "high",
+      "creation": 1769937703,
+      "tasks": [
+        {
+          "text": "Immediate restart on first failure",
+          "priority": "medium",
+          "creation": 1769937707
+        },
+        {
+          "text": "Exponential backoff (1s, 2s, 4s, 8s... cap 30s)",
+          "priority": "medium",
+          "creation": 1769937708
+        },
+        {
+          "text": "Reset backoff after 60s successful run",
+          "priority": "medium",
+          "creation": 1769937709
+        },
+        {
+          "text": "Log restarts with exit code/signal",
+          "priority": "medium",
+          "creation": 1769937710
+        }
+      ]
+    },
+    {
+      "text": "Graceful shutdown",
+      "priority": "high",
+      "creation": 1769937712,
+      "tasks": [
+        {
+          "text": "Handle SIGINT/SIGTERM to proctor",
+          "priority": "medium",
+          "creation": 1769937715
+        },
+        {
+          "text": "Signal processes in reverse dependency order",
+          "priority": "medium",
+          "creation": 1769937715
+        },
+        {
+          "text": "Wait shutdown duration, then SIGKILL",
+          "priority": "medium",
+          "creation": 1769937716
+        }
+      ]
+    },
+    {
+      "text": "Dependency graph and startup ordering",
+      "priority": "high",
+      "creation": 1769940765,
+      "tasks": [
+        {
+          "text": "Build DAG from after= declarations",
+          "priority": "medium",
+          "creation": 1769940767
+        },
+        {
+          "text": "Start processes with no deps concurrently",
+          "priority": "medium",
+          "creation": 1769940768
+        },
+        {
+          "text": "Track readiness and unblock dependents",
+          "priority": "medium",
+          "creation": 1769940769
+        }
+      ]
+    }
+  ]
+}
