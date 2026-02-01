@@ -1,4 +1,4 @@
-use crate::runner::{OutputLine, OutputSource};
+use crate::orchestrator::runner::{OutputLine, OutputSource};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use yansi::{Color, Paint};
@@ -48,6 +48,24 @@ impl OutputFormatter {
         };
 
         format!("{} {}", styled_prefix, line.content)
+    }
+
+    pub fn format_control(&self, process: &str, message: &str) -> String {
+        let color = color_for_name(process);
+        let prefix = format!("{:>width$} |", process, width = self.max_name_len);
+        let styled_prefix = prefix.paint(color).dim();
+        let styled_message = message.paint(color).dim();
+
+        format!("{} {}", styled_prefix, styled_message)
+    }
+
+    pub fn format_error(&self, process: &str, message: &str) -> String {
+        let color = color_for_name(process);
+        let prefix = format!("{:>width$} |", process, width = self.max_name_len);
+        let styled_prefix = prefix.paint(color).dim();
+        let styled_message = message.paint(Color::Red).bold();
+
+        format!("{} {}", styled_prefix, styled_message)
     }
 }
 

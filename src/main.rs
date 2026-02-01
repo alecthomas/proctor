@@ -1,6 +1,6 @@
+mod orchestrator;
 mod output;
 mod parser;
-mod runner;
 
 use clap::Parser;
 use std::path::PathBuf;
@@ -58,10 +58,7 @@ fn load_procfile(path: &PathBuf) -> Result<parser::Procfile, String> {
 }
 
 fn run(procfile: parser::Procfile) -> Result<(), String> {
-    // TODO: Implement process orchestration
-    println!("Would run {} process(es):", procfile.processes.len());
-    for proc in &procfile.processes {
-        println!("  {}: {}", proc.name, proc.command);
-    }
-    Ok(())
+    let base_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+    let orchestrator = orchestrator::Orchestrator::new(procfile, base_dir);
+    orchestrator.run().map_err(|e| e.to_string())
 }

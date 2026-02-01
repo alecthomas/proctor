@@ -83,27 +83,32 @@
         {
           "text": "Create orchestrator module (src/orchestrator.rs)",
           "priority": "high",
-          "creation": 1769942442
+          "creation": 1769942442,
+          "completion": 1769942699
         },
         {
           "text": "Spawn all processes concurrently (no deps yet)",
           "priority": "medium",
-          "creation": 1769942443
+          "creation": 1769942443,
+          "completion": 1769942699
         },
         {
           "text": "Collect and format output from all processes",
           "priority": "medium",
-          "creation": 1769942444
+          "creation": 1769942444,
+          "completion": 1769942699
         },
         {
           "text": "Detect process exit and log status",
           "priority": "medium",
-          "creation": 1769942444
+          "creation": 1769942444,
+          "completion": 1769942699
         },
         {
           "text": "Wire up main.rs to use orchestrator",
           "priority": "high",
-          "creation": 1769942445
+          "creation": 1769942445,
+          "completion": 1769942699
         }
       ]
     },
