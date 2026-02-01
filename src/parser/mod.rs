@@ -33,7 +33,11 @@ pub fn parse(input: &str) -> Result<Procfile, ParseError> {
         while full_line.ends_with('\\') {
             full_line.pop();
             if let Some((_, next_line)) = lines_iter.next() {
-                full_line.push_str(next_line);
+                let trimmed = next_line.trim_start();
+                if !full_line.ends_with(' ') && !trimmed.is_empty() {
+                    full_line.push(' ');
+                }
+                full_line.push_str(trimmed);
             }
         }
 
@@ -402,7 +406,7 @@ worker: go run ./cmd/worker
     fn test_line_continuation() {
         let input = "api: go run \\\n  -tags dev \\\n  ./cmd/api";
         let procfile = parse(input).unwrap();
-        assert_eq!(procfile.processes[0].command, "go run   -tags dev   ./cmd/api");
+        assert_eq!(procfile.processes[0].command, "go run -tags dev ./cmd/api");
     }
 
     #[test]

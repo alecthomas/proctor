@@ -38,6 +38,14 @@ struct Cli {
     /// Validate the Procfile without running processes
     #[arg(long)]
     check: bool,
+
+    /// Print commands being executed
+    #[arg(short = 'd', long)]
+    debug: bool,
+
+    /// Print elapsed time since start for each line
+    #[arg(short = 't', long)]
+    timestamp: bool,
 }
 
 fn main() -> ExitCode {
@@ -60,7 +68,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    if let Err(e) = run(procfile) {
+    if let Err(e) = run(procfile, cli.debug, cli.timestamp) {
         eprintln!("error: {}", e);
         return ExitCode::FAILURE;
     }
@@ -74,8 +82,8 @@ fn load_procfile(path: &PathBuf) -> Result<parser::Procfile, String> {
     parser::parse(&content).map_err(|e| format!("{}: {}", path.display(), e))
 }
 
-fn run(procfile: parser::Procfile) -> Result<(), String> {
+fn run(procfile: parser::Procfile, debug: bool, timestamp: bool) -> Result<(), String> {
     let base_dir = std::env::current_dir().map_err(|e| e.to_string())?;
-    let orchestrator = orchestrator::Orchestrator::new(procfile, base_dir);
+    let orchestrator = orchestrator::Orchestrator::new(procfile, base_dir, debug, timestamp);
     orchestrator.run().map_err(|e| e.to_string())
 }

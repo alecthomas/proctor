@@ -1,0 +1,3 @@
+#!/bin/bash
+
+jq --unbuffered -r '"\(.level | ascii_upcase) [\(.logger)] \(.msg)"'

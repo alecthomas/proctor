@@ -1,6 +1,7 @@
 use crate::orchestrator::runner::{OutputLine, OutputSource};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::time::Instant;
 use yansi::{Color, Paint};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +12,7 @@ pub enum ControlEvent {
     Crashed,
     Restarting,
     TimedOut,
+    Exec,
 }
 
 impl ControlEvent {
@@ -22,6 +24,7 @@ impl ControlEvent {
             ControlEvent::Crashed => "✘",
             ControlEvent::Restarting => "↻",
             ControlEvent::TimedOut => "⏱",
+            ControlEvent::Exec => "$",
         }
     }
 
@@ -33,6 +36,7 @@ impl ControlEvent {
             ControlEvent::Crashed => Color::Red,
             ControlEvent::Restarting => Color::Yellow,
             ControlEvent::TimedOut => Color::Red,
+            ControlEvent::Exec => Color::Cyan,
         }
     }
 }
@@ -74,18 +78,47 @@ fn color_for_name(name: &str) -> Color {
 
 pub struct OutputFormatter {
     max_name_len: usize,
+    start_time: Instant,
+    show_timestamp: bool,
 }
 
 impl OutputFormatter {
-    pub fn new(process_names: &[&str]) -> Self {
+    pub fn new(process_names: &[&str], show_timestamp: bool) -> Self {
         let max_name_len = process_names.iter().map(|n| n.len()).max().unwrap_or(0);
-        Self { max_name_len }
+        Self {
+            max_name_len,
+            start_time: Instant::now(),
+            show_timestamp,
+        }
+    }
+
+    fn format_elapsed(&self) -> String {
+        let elapsed = self.start_time.elapsed();
+        let total_ms = elapsed.as_millis() as u64;
+
+        if total_ms < 10_000 {
+            // 0.00 - 9.99 (2 decimal places)
+            format!("{:.2}", total_ms as f64 / 1000.0)
+        } else if total_ms < 100_000 {
+            // 10.0 - 99.9 (1 decimal place)
+            format!("{:.1}", total_ms as f64 / 1000.0)
+        } else if total_ms < 10_000_000 {
+            // 100 - 9999 (whole seconds)
+            format!("{:>4}", total_ms / 1000)
+        } else {
+            // 166m+ (minutes)
+            format!("{:>3}m", total_ms / 60_000)
+        }
     }
 
     pub fn format(&self, line: &OutputLine) -> String {
         let color = color_for_name(&line.process);
-        let prefix = format!("{:>width$} │", line.process, width = self.max_name_len);
-
+        let ts = if self.show_timestamp {
+            format!(" {}", self.format_elapsed())
+        } else {
+            String::new()
+        };
+        let prefix = format!("{:>width$} │{} │", line.process, ts, width = self.max_name_len);
         let styled_prefix = prefix.paint(color);
 
         match line.source {
@@ -96,7 +129,18 @@ impl OutputFormatter {
 
     pub fn format_control(&self, process: &str, event: ControlEvent, message: &str) -> String {
         let process_color = color_for_name(process);
-        let prefix = format!("{:>width$} {}", process, event.symbol(), width = self.max_name_len);
+        let ts = if self.show_timestamp {
+            format!(" {}", self.format_elapsed())
+        } else {
+            String::new()
+        };
+        let prefix = format!(
+            "{:>width$} │{} {}",
+            process,
+            ts,
+            event.symbol(),
+            width = self.max_name_len
+        );
         let styled_prefix = prefix.paint(process_color);
         let styled_message = message.paint(event.color());
 
@@ -126,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_prefix_alignment() {
-        let formatter = OutputFormatter::new(&["api", "worker", "frontend"]);
+        let formatter = OutputFormatter::new(&["api", "worker", "frontend"], false);
 
         let line = OutputLine {
             process: "api".to_string(),
@@ -144,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_stderr_styling() {
-        let formatter = OutputFormatter::new(&["test"]);
+        let formatter = OutputFormatter::new(&["test"], false);
 
         let stdout_line = OutputLine {
             process: "test".to_string(),

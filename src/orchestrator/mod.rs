@@ -48,6 +48,8 @@ impl Drop for TerminalGuard {
 pub struct Orchestrator {
     procfile: Procfile,
     base_dir: std::path::PathBuf,
+    debug: bool,
+    timestamp: bool,
 }
 
 /// Guard that ensures all process groups are killed when dropped (e.g., on panic)
@@ -179,8 +181,13 @@ impl std::fmt::Display for ProcessStatus {
 }
 
 impl Orchestrator {
-    pub fn new(procfile: Procfile, base_dir: std::path::PathBuf) -> Self {
-        Self { procfile, base_dir }
+    pub fn new(procfile: Procfile, base_dir: std::path::PathBuf, debug: bool, timestamp: bool) -> Self {
+        Self {
+            procfile,
+            base_dir,
+            debug,
+            timestamp,
+        }
     }
 
     /// Start any processes whose dependencies are now all satisfied.
@@ -242,7 +249,7 @@ impl Orchestrator {
         });
 
         let process_names: Vec<&str> = self.procfile.processes.iter().map(|p| p.name.as_str()).collect();
-        let formatter = OutputFormatter::new(&process_names);
+        let formatter = OutputFormatter::new(&process_names, self.timestamp);
 
         let mut processes: HashMap<String, ManagedProcess> = HashMap::new();
 
@@ -659,6 +666,11 @@ impl Orchestrator {
             .get_mut(name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("process '{}' not found", name)))?;
 
+        if self.debug {
+            let msg = formatter.format_control(name, ControlEvent::Exec, &managed.def.command);
+            println!("{}", msg);
+        }
+
         let mut running = spawn_process(&managed.def, &self.base_dir, None)?;
         let output = running
             .take_output()
@@ -745,28 +757,28 @@ mod tests {
     #[test]
     fn test_run_single_process() {
         let procfile = simple_procfile(vec![("test", "echo hello")]);
-        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap());
+        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap(), false, false);
         orchestrator.run().unwrap();
     }
 
     #[test]
     fn test_run_multiple_processes() {
         let procfile = simple_procfile(vec![("one", "echo one"), ("two", "echo two"), ("three", "echo three")]);
-        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap());
+        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap(), false, false);
         orchestrator.run().unwrap();
     }
 
     #[test]
     fn test_run_empty_procfile() {
         let procfile = Procfile { processes: vec![] };
-        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap());
+        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap(), false, false);
         orchestrator.run().unwrap();
     }
 
     #[test]
     fn test_process_failure_logged() {
         let procfile = simple_procfile(vec![("fail", "exit 42")]);
-        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap());
+        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap(), false, false);
         orchestrator.run().unwrap();
     }
 
