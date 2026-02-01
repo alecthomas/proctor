@@ -113,12 +113,16 @@ impl OutputFormatter {
 
     pub fn format(&self, line: &OutputLine) -> String {
         let color = color_for_name(&line.process);
-        let ts = if self.show_timestamp {
-            format!(" {}", self.format_elapsed())
+        let prefix = if self.show_timestamp {
+            format!(
+                "{:>width$} │ {} │",
+                line.process,
+                self.format_elapsed(),
+                width = self.max_name_len
+            )
         } else {
-            String::new()
+            format!("{:>width$} │", line.process, width = self.max_name_len)
         };
-        let prefix = format!("{:>width$} │{} │", line.process, ts, width = self.max_name_len);
         let styled_prefix = prefix.paint(color);
 
         match line.source {
@@ -129,18 +133,17 @@ impl OutputFormatter {
 
     pub fn format_control(&self, process: &str, event: ControlEvent, message: &str) -> String {
         let process_color = color_for_name(process);
-        let ts = if self.show_timestamp {
-            format!(" {}", self.format_elapsed())
+        let prefix = if self.show_timestamp {
+            format!(
+                "{:>width$} │ {} {}",
+                process,
+                self.format_elapsed(),
+                event.symbol(),
+                width = self.max_name_len
+            )
         } else {
-            String::new()
+            format!("{:>width$} {}", process, event.symbol(), width = self.max_name_len)
         };
-        let prefix = format!(
-            "{:>width$} │{} {}",
-            process,
-            ts,
-            event.symbol(),
-            width = self.max_name_len
-        );
         let styled_prefix = prefix.paint(process_color);
 
         // Handle multiline messages
@@ -148,12 +151,16 @@ impl OutputFormatter {
             let lines: Vec<&str> = message.lines().collect();
             let mut result = format!("{} {}", styled_prefix, lines[0].paint(event.color()));
             for line in &lines[1..] {
-                let cont_ts = if self.show_timestamp {
-                    format!(" {}", self.format_elapsed())
+                let continuation_prefix = if self.show_timestamp {
+                    format!(
+                        "{:>width$} │ {} ↳",
+                        "",
+                        self.format_elapsed(),
+                        width = self.max_name_len
+                    )
                 } else {
-                    String::new()
+                    format!("{:>width$} ↳", "", width = self.max_name_len)
                 };
-                let continuation_prefix = format!("{:>width$} │{} ↳", "", cont_ts, width = self.max_name_len);
                 let styled_continuation = continuation_prefix.paint(process_color);
                 result.push('\n');
                 result.push_str(&format!("{} {}", styled_continuation, line.paint(event.color())));
