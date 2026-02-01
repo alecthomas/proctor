@@ -92,7 +92,7 @@ fn main() -> ExitCode {
 fn load_procfile(path: &PathBuf) -> Result<parser::Procfile, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("{}: {}", path.display(), e))?;
 
-    parser::parse(&content).map_err(|e| format!("{}: {}", path.display(), e))
+    parser::parse(&content).map_err(|e| format!("{}:{}", path.display(), e))
 }
 
 fn run(procfile: parser::Procfile, debug: bool, timestamp: bool) -> Result<(), String> {
