@@ -196,6 +196,34 @@ fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<
         });
     }
 
+    // Validate option combinations
+    if oneshot {
+        if options.ready.is_some() {
+            return Err(ParseError {
+                line: line_num,
+                message: "one-shot processes cannot have a ready probe (they become ready on exit)".to_string(),
+            });
+        }
+        if !watch_patterns.is_empty() {
+            return Err(ParseError {
+                line: line_num,
+                message: "one-shot processes cannot have watch patterns (nothing to reload)".to_string(),
+            });
+        }
+        if options.signal != Signal::Term {
+            return Err(ParseError {
+                line: line_num,
+                message: "one-shot processes cannot have a custom signal (nothing to reload)".to_string(),
+            });
+        }
+        if options.debounce != Duration::from_millis(500) {
+            return Err(ParseError {
+                line: line_num,
+                message: "one-shot processes cannot have a custom debounce (no file watching)".to_string(),
+            });
+        }
+    }
+
     Ok(ProcessDef {
         name,
         watch_patterns,
@@ -510,6 +538,46 @@ worker: go run ./cmd/worker
         let input = "api after=unknown: cmd";
         let err = parse(input).unwrap_err();
         assert!(err.message.contains("unknown process"));
+    }
+
+    #[test]
+    fn test_oneshot_with_ready_error() {
+        let input = "migrate! ready=5432: just db migrate";
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("one-shot") && err.message.contains("ready"));
+    }
+
+    #[test]
+    fn test_oneshot_with_watch_patterns_error() {
+        let input = "migrate! **/*.sql: just db migrate";
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("one-shot") && err.message.contains("watch"));
+    }
+
+    #[test]
+    fn test_oneshot_with_signal_error() {
+        let input = "migrate! signal=HUP: just db migrate";
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("one-shot") && err.message.contains("signal"));
+    }
+
+    #[test]
+    fn test_oneshot_with_debounce_error() {
+        let input = "migrate! debounce=1s: just db migrate";
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("one-shot") && err.message.contains("debounce"));
+    }
+
+    #[test]
+    fn test_oneshot_with_valid_options() {
+        // after, dir, and shutdown are valid for one-shot processes
+        let input = "init!: just db init\nmigrate! after=init dir=./db shutdown=10s: just db migrate";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes.len(), 2);
+        assert!(procfile.processes[1].oneshot);
+        assert_eq!(procfile.processes[1].options.after, vec!["init"]);
+        assert_eq!(procfile.processes[1].options.dir, Some("./db".to_string()));
+        assert_eq!(procfile.processes[1].options.shutdown, Duration::from_secs(10));
     }
 
     #[test]

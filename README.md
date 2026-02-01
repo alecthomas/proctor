@@ -100,6 +100,14 @@ Any token matching `key=value` that is not a glob and not the process name is an
 
 Multiple dependencies can be specified with comma separation: `after=redis,migrate`.
 
+**Option restrictions for one-shot processes:** Since one-shot processes run to completion and exit, the following options are not permitted and will cause a parse error:
+- `ready` — one-shot processes become ready when they exit 0
+- `signal` — there is no reload to signal
+- `debounce` — there is no file watching
+- Watch patterns — there is nothing to reload
+
+The `after`, `dir`, and `shutdown` options remain valid for one-shot processes.
+
 ## Execution (right of `:`)
 
 ### Environment variables
