@@ -18,6 +18,28 @@ Proctor is a local development process manager that is compatible with and exten
 - Coloured, aligned log output with optional timestamps
 - Multiline command blocks
 
+## Example
+
+```procfile
+# One-shot: run migrations before anything else (multiline command block)
+migrate! dir=./db:
+    echo "Running migrations..."
+    psql -f schema.sql
+    psql -f seeds.sql
+
+# Long-running infrastructure with TCP readiness probe
+postgres ready=5432: docker run --rm -p 5432:5432 postgres:16
+
+# Long-running with HTTP readiness probe, depends on postgres
+api **/*.go !**_test.go after=migrate,postgres ready=http:8080/health
+    debounce=1s signal=INT shutdown=10s:
+  LOG_LEVEL=debug go run ./cmd/api
+
+# Long-running in subdirectory, watches multiple file types
+frontend web/**/*.{ts,tsx,css,html} !web/dist/** dir=./web after=api: \
+  NODE_ENV=development npm run dev
+```
+
 ## Installation
 
 ```sh
