@@ -142,9 +142,27 @@ impl OutputFormatter {
             width = self.max_name_len
         );
         let styled_prefix = prefix.paint(process_color);
-        let styled_message = message.paint(event.color());
 
-        format!("{} {}", styled_prefix, styled_message)
+        // Handle multiline messages
+        if message.contains('\n') {
+            let lines: Vec<&str> = message.lines().collect();
+            let mut result = format!("{} {}", styled_prefix, lines[0].paint(event.color()));
+            for line in &lines[1..] {
+                let cont_ts = if self.show_timestamp {
+                    format!(" {}", self.format_elapsed())
+                } else {
+                    String::new()
+                };
+                let continuation_prefix = format!("{:>width$} │{} ↳", "", cont_ts, width = self.max_name_len);
+                let styled_continuation = continuation_prefix.paint(process_color);
+                result.push('\n');
+                result.push_str(&format!("{} {}", styled_continuation, line.paint(event.color())));
+            }
+            result
+        } else {
+            let styled_message = message.paint(event.color());
+            format!("{} {}", styled_prefix, styled_message)
+        }
     }
 }
 

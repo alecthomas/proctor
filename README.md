@@ -40,6 +40,19 @@ api **/*.go: go run \
   ./cmd/api
 ```
 
+### Multiline command blocks
+
+If the colon is immediately followed by a newline, subsequent indented lines form the command:
+
+```
+build!:
+    echo "Building..."
+    go build -o bin/app ./cmd/app
+    echo "Done"
+```
+
+Common leading indentation is stripped. The block ends at the first non-indented line (or end of file).
+
 ## Declaration (left of `:`)
 
 ### Process name

@@ -28,7 +28,7 @@ pub fn parse(input: &str) -> Result<Procfile, ParseError> {
     while let Some((line_num, line)) = lines_iter.next() {
         let line_num = line_num + 1; // 1-indexed
 
-        // Handle line continuation
+        // Handle line continuation with backslash
         let mut full_line = line.to_string();
         while full_line.ends_with('\\') {
             full_line.pop();
@@ -48,7 +48,62 @@ pub fn parse(input: &str) -> Result<Procfile, ParseError> {
             continue;
         }
 
-        let process = parse_line(trimmed, line_num)?;
+        // Handle multiline command block (colon at end of line)
+        let (line_to_parse, multiline_command) = if trimmed.ends_with(':') {
+            // Collect all subsequent indented lines as the command
+            let mut command_lines = Vec::new();
+            while let Some((_, next_line)) = lines_iter.peek() {
+                // Check if line is indented (starts with whitespace)
+                if next_line.starts_with(' ') || next_line.starts_with('\t') {
+                    let (_, next_line) = lines_iter.next().unwrap();
+                    command_lines.push(next_line.to_string());
+                } else if next_line.trim().is_empty() {
+                    // Skip blank lines within the block
+                    lines_iter.next();
+                } else {
+                    break;
+                }
+            }
+            if command_lines.is_empty() {
+                (trimmed.to_string(), None)
+            } else {
+                // Find minimum indentation
+                let min_indent = command_lines
+                    .iter()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| l.len() - l.trim_start().len())
+                    .min()
+                    .unwrap_or(0);
+                // Strip common indentation and join with newlines
+                let command: String = command_lines
+                    .iter()
+                    .map(|l| {
+                        if l.trim().is_empty() {
+                            ""
+                        } else if l.len() > min_indent {
+                            &l[min_indent..]
+                        } else {
+                            l.trim_start()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                (trimmed.to_string(), Some(command))
+            }
+        } else {
+            (trimmed.to_string(), None)
+        };
+
+        let allow_empty = multiline_command.is_some();
+        let mut process = parse_line(&line_to_parse, line_num, allow_empty)?;
+        if let Some(cmd) = multiline_command {
+            process.command = cmd;
+        } else if process.command.is_empty() {
+            return Err(ParseError {
+                line: line_num,
+                message: "missing command".to_string(),
+            });
+        }
         processes.push(process);
     }
 
@@ -69,7 +124,7 @@ pub fn parse(input: &str) -> Result<Procfile, ParseError> {
     Ok(Procfile { processes })
 }
 
-fn parse_line(line: &str, line_num: usize) -> Result<ProcessDef, ParseError> {
+fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<ProcessDef, ParseError> {
     let mut input = line;
 
     let decl_tokens = tokenizer::tokenize_before_colon(&mut input).map_err(|e| ParseError {
@@ -134,7 +189,7 @@ fn parse_line(line: &str, line_num: usize) -> Result<ProcessDef, ParseError> {
         }
     }
 
-    if command_part.is_empty() {
+    if command_part.is_empty() && !allow_empty_command {
         return Err(ParseError {
             line: line_num,
             message: "missing command".to_string(),
@@ -407,6 +462,33 @@ worker: go run ./cmd/worker
         let input = "api: go run \\\n  -tags dev \\\n  ./cmd/api";
         let procfile = parse(input).unwrap();
         assert_eq!(procfile.processes[0].command, "go run -tags dev ./cmd/api");
+    }
+
+    #[test]
+    fn test_multiline_command_block() {
+        let input = "api:\n    echo hello\n    echo world";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes[0].command, "echo hello\necho world");
+    }
+
+    #[test]
+    fn test_multiline_command_block_with_options() {
+        let input = "api ready=8080:\n    go run ./cmd/api";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes[0].command, "go run ./cmd/api");
+        assert_eq!(
+            procfile.processes[0].options.ready,
+            Some(ReadyProbe::Tcp { port: 8080 })
+        );
+    }
+
+    #[test]
+    fn test_multiline_followed_by_another_process() {
+        let input = "api:\n    echo hello\nworker: echo world";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes.len(), 2);
+        assert_eq!(procfile.processes[0].command, "echo hello");
+        assert_eq!(procfile.processes[1].command, "echo world");
     }
 
     #[test]
