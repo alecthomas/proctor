@@ -35,10 +35,7 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
-    pub fn new(
-        base_dir: &Path,
-        processes: Vec<(String, Vec<GlobPattern>, Duration)>,
-    ) -> Result<Self, String> {
+    pub fn new(base_dir: &Path, processes: Vec<(String, Vec<GlobPattern>, Duration)>) -> Result<Self, String> {
         let (tx, rx) = mpsc::channel();
 
         let matchers = build_matchers(processes)?;
@@ -75,9 +72,7 @@ fn normalize_pattern(pattern: &str) -> &str {
     pattern.strip_prefix("./").unwrap_or(pattern)
 }
 
-fn build_matchers(
-    processes: Vec<(String, Vec<GlobPattern>, Duration)>,
-) -> Result<Vec<ProcessMatcher>, String> {
+fn build_matchers(processes: Vec<(String, Vec<GlobPattern>, Duration)>) -> Result<Vec<ProcessMatcher>, String> {
     let mut matchers = Vec::new();
 
     for (name, patterns, _debounce) in processes {
@@ -86,8 +81,8 @@ fn build_matchers(
 
         for pattern in patterns {
             let normalized = normalize_pattern(&pattern.pattern);
-            let glob = Glob::new(normalized)
-                .map_err(|e| format!("invalid glob pattern '{}': {}", pattern.pattern, e))?;
+            let glob =
+                Glob::new(normalized).map_err(|e| format!("invalid glob pattern '{}': {}", pattern.pattern, e))?;
 
             if pattern.exclude {
                 excludes.add(glob);
@@ -109,12 +104,7 @@ fn build_matchers(
     Ok(matchers)
 }
 
-fn handle_event(
-    event: &Event,
-    base_dir: &Path,
-    matchers: &[ProcessMatcher],
-    tx: &Sender<ReloadEvent>,
-) {
+fn handle_event(event: &Event, base_dir: &Path, matchers: &[ProcessMatcher], tx: &Sender<ReloadEvent>) {
     use notify::EventKind;
 
     // Only handle create, modify, and remove events
@@ -152,10 +142,7 @@ fn handle_event(
     }
 
     for (name, path) in triggered {
-        let _ = tx.send(ReloadEvent {
-            process: name,
-            path,
-        });
+        let _ = tx.send(ReloadEvent { process: name, path });
     }
 }
 
@@ -171,8 +158,7 @@ impl Debouncer {
     }
 
     pub fn set_debounce(&mut self, process: &str, duration: Duration) {
-        self.debounce_durations
-            .insert(process.to_string(), duration);
+        self.debounce_durations.insert(process.to_string(), duration);
     }
 
     pub fn record_event(&mut self, process: &str, path: &str) {
@@ -262,12 +248,7 @@ mod tests {
 
     #[test]
     fn test_matcher_no_patterns() {
-        let matchers = build_matchers(vec![(
-            "api".to_string(),
-            vec![],
-            Duration::from_millis(500),
-        )])
-        .unwrap();
+        let matchers = build_matchers(vec![("api".to_string(), vec![], Duration::from_millis(500))]).unwrap();
 
         assert!(!matchers[0].matches(Path::new("anything.go")));
     }
@@ -330,11 +311,7 @@ mod tests {
     fn test_matcher_multiple_extensions() {
         let matchers = build_matchers(vec![(
             "frontend".to_string(),
-            vec![
-                glob("**/*.ts", false),
-                glob("**/*.tsx", false),
-                glob("**/*.css", false),
-            ],
+            vec![glob("**/*.ts", false), glob("**/*.tsx", false), glob("**/*.css", false)],
             Duration::from_millis(500),
         )])
         .unwrap();

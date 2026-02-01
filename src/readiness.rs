@@ -91,9 +91,7 @@ fn check_http_addr(addr: &str, port: u16, path: &str) -> bool {
     // Parse HTTP response status line - accept any response < 500
     // (4xx client errors still indicate the server is running and healthy)
     let response_str = String::from_utf8_lossy(&response[..n]);
-    parse_http_status(&response_str)
-        .map(|code| code < 500)
-        .unwrap_or(false)
+    parse_http_status(&response_str).map(|code| code < 500).unwrap_or(false)
 }
 
 /// Parses the status code from an HTTP response.
@@ -199,10 +197,7 @@ mod tests {
     fn test_parse_http_status() {
         assert_eq!(parse_http_status("HTTP/1.1 200 OK\r\n"), Some(200));
         assert_eq!(parse_http_status("HTTP/1.0 404 Not Found\r\n"), Some(404));
-        assert_eq!(
-            parse_http_status("HTTP/1.1 503 Service Unavailable\r\n"),
-            Some(503)
-        );
+        assert_eq!(parse_http_status("HTTP/1.1 503 Service Unavailable\r\n"), Some(503));
         assert_eq!(parse_http_status("garbage"), None);
     }
 

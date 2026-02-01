@@ -135,9 +135,7 @@ pub fn spawn_process(
 
     // Create a new process group so we can signal the entire group
     unsafe {
-        cmd.pre_exec(|| {
-            nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0)).map_err(io::Error::other)
-        });
+        cmd.pre_exec(|| nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0)).map_err(io::Error::other));
     }
 
     let child = cmd.spawn()?;
@@ -174,10 +172,7 @@ mod tests {
         let output = proc.take_output().unwrap();
         proc.child.wait().unwrap();
 
-        let line = output
-            .receiver
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap();
+        let line = output.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(line.content, "hello");
         assert_eq!(line.source, OutputSource::Stdout);
         assert_eq!(line.process, "test");
@@ -194,10 +189,7 @@ mod tests {
         let output = proc.take_output().unwrap();
         proc.child.wait().unwrap();
 
-        let line = output
-            .receiver
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap();
+        let line = output.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(line.content, "test_value");
     }
 
@@ -220,10 +212,7 @@ mod tests {
         let output = proc.take_output().unwrap();
         proc.child.wait().unwrap();
 
-        let line = output
-            .receiver
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap();
+        let line = output.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(line.content.ends_with("/src"));
     }
 
@@ -247,10 +236,7 @@ mod tests {
         let output = proc.take_output().unwrap();
         proc.child.wait().unwrap();
 
-        let line = output
-            .receiver
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap();
+        let line = output.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(line.content, "error");
         assert_eq!(line.source, OutputSource::Stderr);
     }

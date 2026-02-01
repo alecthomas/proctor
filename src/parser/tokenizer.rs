@@ -68,12 +68,7 @@ fn is_line_separator(input: &str) -> bool {
         return false;
     }
     // A colon is the line separator if followed by whitespace or end-of-input
-    input.len() == 1
-        || input
-            .chars()
-            .nth(1)
-            .map(|c| c.is_whitespace())
-            .unwrap_or(true)
+    input.len() == 1 || input.chars().nth(1).map(|c| c.is_whitespace()).unwrap_or(true)
 }
 
 pub fn tokenize_before_colon(input: &mut &str) -> ModalResult<Vec<String>> {
@@ -104,9 +99,7 @@ fn token_with_colon(input: &mut &str) -> ModalResult<String> {
         }
     }
     if result.is_empty() {
-        Err(winnow::error::ErrMode::Backtrack(
-            winnow::error::ContextError::new(),
-        ))
+        Err(winnow::error::ErrMode::Backtrack(winnow::error::ContextError::new()))
     } else {
         Ok(result)
     }

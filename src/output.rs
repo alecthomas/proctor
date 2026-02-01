@@ -96,12 +96,7 @@ impl OutputFormatter {
 
     pub fn format_control(&self, process: &str, event: ControlEvent, message: &str) -> String {
         let process_color = color_for_name(process);
-        let prefix = format!(
-            "{:>width$} {}",
-            process,
-            event.symbol(),
-            width = self.max_name_len
-        );
+        let prefix = format!("{:>width$} {}", process, event.symbol(), width = self.max_name_len);
         let styled_prefix = prefix.paint(process_color);
         let styled_message = message.paint(event.color());
 

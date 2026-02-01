@@ -147,18 +147,10 @@ fn parse_line(line: &str, line_num: usize) -> Result<ProcessDef, ParseError> {
 }
 
 fn is_valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-fn apply_option(
-    opts: &mut ProcessOptions,
-    key: &str,
-    value: &str,
-    line_num: usize,
-) -> Result<(), ParseError> {
+fn apply_option(opts: &mut ProcessOptions, key: &str, value: &str, line_num: usize) -> Result<(), ParseError> {
     match key {
         "after" => {
             opts.after = value.split(',').map(|s| s.trim().to_string()).collect();
@@ -248,10 +240,7 @@ fn check_circular_deps(processes: &[ProcessDef]) -> Result<(), ParseError> {
             if !name_to_idx.contains_key(dep.as_str()) {
                 return Err(ParseError {
                     line: 0,
-                    message: format!(
-                        "process '{}' depends on unknown process '{}'",
-                        proc.name, dep
-                    ),
+                    message: format!("process '{}' depends on unknown process '{}'", proc.name, dep),
                 });
             }
         }
@@ -363,20 +352,14 @@ mod tests {
         let input = "db: postgres\napi after=db debounce=1s: go run ./cmd/api";
         let procfile = parse(input).unwrap();
         assert_eq!(procfile.processes[1].options.after, vec!["db"]);
-        assert_eq!(
-            procfile.processes[1].options.debounce,
-            Duration::from_secs(1)
-        );
+        assert_eq!(procfile.processes[1].options.debounce, Duration::from_secs(1));
     }
 
     #[test]
     fn test_with_env() {
         let input = "api: CGO_ENABLED=0 go run ./cmd/api";
         let procfile = parse(input).unwrap();
-        assert_eq!(
-            procfile.processes[0].command,
-            "CGO_ENABLED=0 go run ./cmd/api"
-        );
+        assert_eq!(procfile.processes[0].command, "CGO_ENABLED=0 go run ./cmd/api");
     }
 
     #[test]
@@ -419,10 +402,7 @@ worker: go run ./cmd/worker
     fn test_line_continuation() {
         let input = "api: go run \\\n  -tags dev \\\n  ./cmd/api";
         let procfile = parse(input).unwrap();
-        assert_eq!(
-            procfile.processes[0].command,
-            "go run   -tags dev   ./cmd/api"
-        );
+        assert_eq!(procfile.processes[0].command, "go run   -tags dev   ./cmd/api");
     }
 
     #[test]

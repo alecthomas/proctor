@@ -24,10 +24,7 @@ impl DependencyGraph {
             dependencies.insert(name.to_string(), deps.iter().cloned().collect());
 
             for dep in deps {
-                dependents
-                    .entry(dep.clone())
-                    .or_default()
-                    .insert(name.to_string());
+                dependents.entry(dep.clone()).or_default().insert(name.to_string());
             }
         }
 
@@ -48,12 +45,7 @@ impl DependencyGraph {
     pub fn roots(&self) -> Vec<&str> {
         self.processes
             .iter()
-            .filter(|name| {
-                self.dependencies
-                    .get(*name)
-                    .map(|deps| deps.is_empty())
-                    .unwrap_or(true)
-            })
+            .filter(|name| self.dependencies.get(*name).map(|deps| deps.is_empty()).unwrap_or(true))
             .map(|s| s.as_str())
             .collect()
     }

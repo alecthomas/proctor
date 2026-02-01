@@ -203,28 +203,15 @@ impl Orchestrator {
                     .all(|dep| processes.get(*dep).map(|m| m.is_ready).unwrap_or(false))
             })
             .map(|(name, _)| {
-                let deps: Vec<String> = graph
-                    .dependencies_of(name)
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect();
+                let deps: Vec<String> = graph.dependencies_of(name).iter().map(|s| s.to_string()).collect();
                 (name.clone(), deps)
             })
             .collect();
 
         for (name, deps) in to_start {
-            let after = if deps.is_empty() {
-                None
-            } else {
-                Some(deps.join(", "))
-            };
-            if let Err(e) = self.spawn_managed(processes, &name, formatter, guard, after.as_deref())
-            {
-                let msg = formatter.format_control(
-                    &name,
-                    ControlEvent::Crashed,
-                    &format!("failed to start: {}", e),
-                );
+            let after = if deps.is_empty() { None } else { Some(deps.join(", ")) };
+            if let Err(e) = self.spawn_managed(processes, &name, formatter, guard, after.as_deref()) {
+                let msg = formatter.format_control(&name, ControlEvent::Crashed, &format!("failed to start: {}", e));
                 println!("{}", msg);
             }
         }
@@ -254,12 +241,7 @@ impl Orchestrator {
             }
         });
 
-        let process_names: Vec<&str> = self
-            .procfile
-            .processes
-            .iter()
-            .map(|p| p.name.as_str())
-            .collect();
+        let process_names: Vec<&str> = self.procfile.processes.iter().map(|p| p.name.as_str()).collect();
         let formatter = OutputFormatter::new(&process_names);
 
         let mut processes: HashMap<String, ManagedProcess> = HashMap::new();
@@ -302,11 +284,8 @@ impl Orchestrator {
             match FileWatcher::new(&self.base_dir, watch_processes) {
                 Ok(w) => Some((w, debouncer)),
                 Err(e) => {
-                    let msg = formatter.format_control(
-                        "proctor",
-                        ControlEvent::Crashed,
-                        &format!("watcher error: {}", e),
-                    );
+                    let msg =
+                        formatter.format_control("proctor", ControlEvent::Crashed, &format!("watcher error: {}", e));
                     println!("{}", msg);
                     None
                 }
@@ -326,8 +305,7 @@ impl Orchestrator {
             .into_iter()
             .map(|s| s.to_string())
             .collect();
-        let mut shutdown_signaled: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut shutdown_signaled: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         loop {
             // Check for shutdown signal
@@ -355,11 +333,7 @@ impl Orchestrator {
                     if let Some(managed) = processes.get_mut(name)
                         && let Some(ref proc) = managed.process
                     {
-                        let msg = formatter.format_control(
-                            &managed.def.name,
-                            ControlEvent::Stopped,
-                            "kill -TERM",
-                        );
+                        let msg = formatter.format_control(&managed.def.name, ControlEvent::Stopped, "kill -TERM");
                         println!("{}", msg);
                         let _ = proc.signal(Signal::Term);
                         managed.reload_signal_sent = Some(Instant::now());
@@ -405,8 +379,7 @@ impl Orchestrator {
                     if readiness::is_ready(probe) {
                         managed.is_ready = true;
                         managed.ready_probe_started = None;
-                        let msg =
-                            formatter.format_control(&managed.def.name, ControlEvent::Ready, "ok");
+                        let msg = formatter.format_control(&managed.def.name, ControlEvent::Ready, "ok");
                         println!("{}", msg);
                     } else if let Some(started) = managed.ready_probe_started {
                         let elapsed = started.elapsed();
@@ -444,10 +417,7 @@ impl Orchestrator {
             for managed in processes.values_mut() {
                 if managed.is_running() && managed.consecutive_failures > 0 {
                     let current_backoff = managed.calculate_backoff();
-                    let reference_time = managed
-                        .last_backoff_decrease
-                        .or(managed.last_start_time)
-                        .unwrap_or(now);
+                    let reference_time = managed.last_backoff_decrease.or(managed.last_start_time).unwrap_or(now);
                     if now.duration_since(reference_time) >= current_backoff {
                         managed.consecutive_failures -= 1;
                         managed.last_backoff_decrease = Some(now);
@@ -481,13 +451,9 @@ impl Orchestrator {
                 }
 
                 // One-shot processes become ready on successful exit
-                let logged_ready = if managed.def.oneshot
-                    && !managed.is_ready
-                    && status == ProcessStatus::Success
-                {
+                let logged_ready = if managed.def.oneshot && !managed.is_ready && status == ProcessStatus::Success {
                     managed.is_ready = true;
-                    let msg =
-                        formatter.format_control(&name, ControlEvent::Ready, "exited successfully");
+                    let msg = formatter.format_control(&name, ControlEvent::Ready, "exited successfully");
                     println!("{}", msg);
                     true
                 } else {
@@ -496,11 +462,8 @@ impl Orchestrator {
 
                 // One-shot process failure aborts startup
                 if managed.def.oneshot && status != ProcessStatus::Success && !shutting_down {
-                    let msg = formatter.format_control(
-                        &name,
-                        ControlEvent::Crashed,
-                        &format!("{} (aborting) ", status),
-                    );
+                    let msg =
+                        formatter.format_control(&name, ControlEvent::Crashed, &format!("{} (aborting) ", status));
                     println!("{}", msg);
                     shutting_down = true;
                 }
@@ -518,9 +481,7 @@ impl Orchestrator {
                     managed.consecutive_failures = 0;
                     let msg = formatter.format_control(&name, ControlEvent::Restarting, &path);
                     println!("{}", msg);
-                    if let Err(e) =
-                        self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None)
-                    {
+                    if let Err(e) = self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
                         let msg = formatter.format_control(
                             &name,
                             ControlEvent::Crashed,
@@ -546,11 +507,7 @@ impl Orchestrator {
                     let msg = if backoff.is_zero() {
                         formatter.format_control(&name, ControlEvent::Restarting, "now")
                     } else {
-                        formatter.format_control(
-                            &name,
-                            ControlEvent::Restarting,
-                            &format!("in {}s", backoff.as_secs()),
-                        )
+                        formatter.format_control(&name, ControlEvent::Restarting, &format!("in {}s", backoff.as_secs()))
                     };
                     println!("{}", msg);
                 } else if !logged_ready && !shutting_down {
@@ -585,9 +542,7 @@ impl Orchestrator {
                     .collect();
 
                 for name in names_to_restart {
-                    if let Err(e) =
-                        self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None)
-                    {
+                    if let Err(e) = self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
                         let msg = formatter.format_control(
                             &name,
                             ControlEvent::Crashed,
@@ -612,11 +567,7 @@ impl Orchestrator {
                         && now.duration_since(signal_time) >= managed.def.options.shutdown
                         && let Some(ref proc) = managed.process
                     {
-                        let msg = formatter.format_control(
-                            &managed.def.name,
-                            ControlEvent::Stopped,
-                            "kill -9",
-                        );
+                        let msg = formatter.format_control(&managed.def.name, ControlEvent::Stopped, "kill -9");
                         println!("{}", msg);
                         let _ = proc.kill();
                         // Clear signal_sent to avoid repeated SIGKILL attempts
@@ -632,11 +583,7 @@ impl Orchestrator {
                     && now.duration_since(signal_time) >= managed.def.options.shutdown
                     && let Some(ref proc) = managed.process
                 {
-                    let msg = formatter.format_control(
-                        &managed.def.name,
-                        ControlEvent::Stopped,
-                        "kill -9",
-                    );
+                    let msg = formatter.format_control(&managed.def.name, ControlEvent::Stopped, "kill -9");
                     println!("{}", msg);
                     let _ = proc.kill();
                 }
@@ -708,12 +655,9 @@ impl Orchestrator {
         guard: &mut ShutdownGuard,
         after: Option<&str>,
     ) -> io::Result<()> {
-        let managed = processes.get_mut(name).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("process '{}' not found", name),
-            )
-        })?;
+        let managed = processes
+            .get_mut(name)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("process '{}' not found", name)))?;
 
         let mut running = spawn_process(&managed.def, &self.base_dir, None)?;
         let output = running
@@ -807,11 +751,7 @@ mod tests {
 
     #[test]
     fn test_run_multiple_processes() {
-        let procfile = simple_procfile(vec![
-            ("one", "echo one"),
-            ("two", "echo two"),
-            ("three", "echo three"),
-        ]);
+        let procfile = simple_procfile(vec![("one", "echo one"), ("two", "echo two"), ("three", "echo three")]);
         let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap());
         orchestrator.run().unwrap();
     }

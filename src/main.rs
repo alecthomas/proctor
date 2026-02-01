@@ -55,11 +55,7 @@ fn main() -> ExitCode {
         println!(
             "Procfile is valid ({} process{})",
             procfile.processes.len(),
-            if procfile.processes.len() == 1 {
-                ""
-            } else {
-                "es"
-            }
+            if procfile.processes.len() == 1 { "" } else { "es" }
         );
         return ExitCode::SUCCESS;
     }
@@ -73,8 +69,7 @@ fn main() -> ExitCode {
 }
 
 fn load_procfile(path: &PathBuf) -> Result<parser::Procfile, String> {
-    let content =
-        std::fs::read_to_string(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+    let content = std::fs::read_to_string(path).map_err(|e| format!("{}: {}", path.display(), e))?;
 
     parser::parse(&content).map_err(|e| format!("{}: {}", path.display(), e))
 }
