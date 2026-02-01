@@ -42,19 +42,19 @@ impl OutputFormatter {
         let color = color_for_name(&line.process);
         let prefix = format!("{:>width$} |", line.process, width = self.max_name_len);
 
-        let styled_prefix = match line.source {
-            OutputSource::Stdout => prefix.paint(color),
-            OutputSource::Stderr => prefix.paint(color).dim().italic(),
-        };
+        let styled_prefix = prefix.paint(color);
 
-        format!("{} {}", styled_prefix, line.content)
+        match line.source {
+            OutputSource::Stdout => format!("{} {}", styled_prefix, line.content),
+            OutputSource::Stderr => format!("{} {}", styled_prefix, line.content.dim().italic()),
+        }
     }
 
     pub fn format_control(&self, process: &str, message: &str) -> String {
         let color = color_for_name(process);
         let prefix = format!("{:>width$} |", process, width = self.max_name_len);
-        let styled_prefix = prefix.paint(color).dim();
-        let styled_message = message.paint(color).dim();
+        let styled_prefix = prefix.paint(color);
+        let styled_message = message.bold();
 
         format!("{} {}", styled_prefix, styled_message)
     }
@@ -62,7 +62,7 @@ impl OutputFormatter {
     pub fn format_error(&self, process: &str, message: &str) -> String {
         let color = color_for_name(process);
         let prefix = format!("{:>width$} |", process, width = self.max_name_len);
-        let styled_prefix = prefix.paint(color).dim();
+        let styled_prefix = prefix.paint(color);
         let styled_message = message.paint(Color::Red).bold();
 
         format!("{} {}", styled_prefix, styled_message)
