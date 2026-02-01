@@ -1,8 +1,8 @@
-# A simple process manager with hot reload, readiness probes and dependencies
+# A Procfile-compatible process manager with hot reload, readiness probes and dependencies
 
 ## Overview
 
-Proctor is a local development process manager that extends the Procfile format with file watching, hot reload, dependency ordering, and coloured log prefixing. It aims to replace ad-hoc combinations of `foreman`, `watchexec`, and shell scripts with a single declarative file.
+Proctor is a local development process manager that is compatible with and extends the Procfile format with file watching, hot reload, dependency ordering, and coloured log prefixing. It aims to replace ad-hoc combinations of `foreman`, `watchexec`, and shell scripts with a single declarative file.
 
 ## Installation
 
@@ -144,11 +144,11 @@ On `SIGINT` or `SIGTERM` to proctor itself:
 
 The `ready` option defines how proctor determines a process is ready (for `after=` dependents).
 
-| Format                              | Behaviour                                          |
-|-------------------------------------|---------------------------------------------------|
-| `tcp://<port>`                      | Poll `localhost:<port>` until a connection succeeds |
-| `http://:<port>[/<path>]`           | Poll `http://localhost:<port>[/<path>]` for a 2xx response |
-| (none)                              | Long-running: ready immediately on start. One-shot: ready on exit 0. |
+| Format                 | Behaviour                                                    |
+|------------------------|--------------------------------------------------------------|
+| `<port>`               | Poll `localhost:<port>` until a TCP connection succeeds      |
+| `http:<port>[/<path>]` | Poll `http://localhost:<port>[/<path>]` for a non-5xx response |
+| (none)                 | Long-running: ready immediately on start. One-shot: ready on exit 0. |
 
 Readiness polling begins when the process starts, with a 250ms interval and a 30s timeout. If the timeout is exceeded, proctor logs an error and continues (does not abort).
 
@@ -192,12 +192,12 @@ migrate! after=init: just db migrate
 
 # Infrastructure
 redis: redis-server
-postgres ready=tcp://5432: docker run --rm -p 5432:5432 postgres:16
+postgres ready=5432: docker run --rm -p 5432:5432 postgres:16
 
 # Services
 api **/*.go !**_test.go after=postgres debounce=500ms: \
   CGO_ENABLED=0 go run ./cmd/api
-worker **/*.go !**_test.go after=redis ready=tcp://6379: \
+worker **/*.go !**_test.go after=redis ready=6379: \
   go run ./cmd/worker
 frontend web/**/*.{ts,tsx,css} dir=./web: \
   npm run dev

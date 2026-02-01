@@ -4,12 +4,12 @@ migrate after=init: just db migrate
 
 # Infrastructure
 redis: redis-server
-postgres ready='tcp://5432': docker run --rm -p 5432:5432 postgres:16
+postgres ready=5432: docker run --rm -p 5432:5432 postgres:16
 
 # Services
 api **/*.go !**_test.go after=postgres debounce=500ms: \
   CGO_ENABLED=0 go run ./cmd/api
-worker **/*.go !**_test.go after=redis ready='tcp://6379': \
+worker **/*.go !**_test.go after=redis ready=6379: \
   go run ./cmd/worker
 frontend web/**/*.{ts,tsx,css} dir=./web: \
   npm run dev

@@ -36,14 +36,22 @@ fn check_probe(probe: &ReadyProbe) -> bool {
     }
 }
 
-/// Attempts a TCP connection to localhost:port.
+/// Attempts a TCP connection to localhost:port (tries both IPv4 and IPv6).
 fn check_tcp(port: u16) -> bool {
-    let addr = format!("127.0.0.1:{}", port);
-    TcpStream::connect_timeout(&addr.parse().unwrap(), CONNECT_TIMEOUT).is_ok()
+    let addrs = [format!("127.0.0.1:{}", port), format!("[::1]:{}", port)];
+    addrs
+        .iter()
+        .any(|addr| TcpStream::connect_timeout(&addr.parse().unwrap(), CONNECT_TIMEOUT).is_ok())
 }
 
 /// Attempts an HTTP GET to localhost:port/path, returns true if 2xx response.
+/// Tries both IPv4 and IPv6 loopback addresses.
 fn check_http(port: u16, path: &str) -> bool {
+    let addrs = [format!("127.0.0.1:{}", port), format!("[::1]:{}", port)];
+    addrs.iter().any(|addr| check_http_addr(addr, port, path))
+}
+
+fn check_http_addr(addr: &str, port: u16, path: &str) -> bool {
     // Build a minimal HTTP/1.0 request
     let path = if path.starts_with('/') {
         path.to_string()
@@ -55,7 +63,6 @@ fn check_http(port: u16, path: &str) -> bool {
         path, port
     );
 
-    let addr = format!("127.0.0.1:{}", port);
     let stream = match TcpStream::connect_timeout(&addr.parse().unwrap(), CONNECT_TIMEOUT) {
         Ok(s) => s,
         Err(_) => return false,
@@ -81,10 +88,11 @@ fn check_http(port: u16, path: &str) -> bool {
         Err(_) => return false,
     };
 
-    // Parse HTTP response status line: "HTTP/1.x 2xx ..."
+    // Parse HTTP response status line - accept any response < 500
+    // (4xx client errors still indicate the server is running and healthy)
     let response_str = String::from_utf8_lossy(&response[..n]);
     parse_http_status(&response_str)
-        .map(|code| (200..300).contains(&code))
+        .map(|code| code < 500)
         .unwrap_or(false)
 }
 
@@ -149,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn test_http_probe_non_2xx() {
+    fn test_http_probe_5xx_rejected() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
 
@@ -162,6 +170,23 @@ mod tests {
         });
 
         assert!(!check_http(port, "/"));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_http_probe_4xx_accepted() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let handle = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::Write;
+                let response = "HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        assert!(check_http(port, "/health"));
         handle.join().unwrap();
     }
 
@@ -194,6 +219,44 @@ mod tests {
         let result = wait_for_ready(&probe);
         assert_eq!(result, ReadinessResult::Ready);
 
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_tcp_probe_ipv6_success() {
+        // Start a listener on IPv6 loopback
+        let listener = match TcpListener::bind("[::1]:0") {
+            Ok(l) => l,
+            Err(_) => return, // Skip if IPv6 not available
+        };
+        let port = listener.local_addr().unwrap().port();
+
+        let handle = thread::spawn(move || {
+            let _ = listener.accept();
+        });
+
+        assert!(check_tcp(port));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_http_probe_ipv6_success() {
+        // Start a listener on IPv6 loopback
+        let listener = match TcpListener::bind("[::1]:0") {
+            Ok(l) => l,
+            Err(_) => return, // Skip if IPv6 not available
+        };
+        let port = listener.local_addr().unwrap().port();
+
+        let handle = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::Write;
+                let response = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        assert!(check_http(port, "/health"));
         handle.join().unwrap();
     }
 }

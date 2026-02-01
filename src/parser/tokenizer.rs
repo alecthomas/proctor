@@ -63,16 +63,53 @@ fn token_no_colon(input: &mut &str) -> ModalResult<String> {
     .parse_next(input)
 }
 
+fn is_line_separator(input: &str) -> bool {
+    if !input.starts_with(':') {
+        return false;
+    }
+    // A colon is the line separator if followed by whitespace or end-of-input
+    input.len() == 1
+        || input
+            .chars()
+            .nth(1)
+            .map(|c| c.is_whitespace())
+            .unwrap_or(true)
+}
+
 pub fn tokenize_before_colon(input: &mut &str) -> ModalResult<Vec<String>> {
     let mut tokens = Vec::new();
     loop {
         let _ = take_while(0.., |c: char| c.is_whitespace()).parse_next(input)?;
-        if input.is_empty() || input.starts_with(':') {
+        if input.is_empty() || is_line_separator(input) {
             break;
         }
-        tokens.push(token_no_colon(input)?);
+        tokens.push(token_with_colon(input)?);
     }
     Ok(tokens)
+}
+
+fn token_with_colon(input: &mut &str) -> ModalResult<String> {
+    let mut result = String::new();
+    loop {
+        // Try to parse a regular token part
+        if let Ok(part) = token_no_colon(input) {
+            result.push_str(&part);
+        }
+        // Check if we should consume a colon (only if not followed by whitespace)
+        if input.starts_with(':') && !is_line_separator(input) {
+            result.push(':');
+            *input = &input[1..];
+        } else {
+            break;
+        }
+    }
+    if result.is_empty() {
+        Err(winnow::error::ErrMode::Backtrack(
+            winnow::error::ContextError::new(),
+        ))
+    } else {
+        Ok(result)
+    }
 }
 
 pub fn skip_colon(input: &mut &str) -> ModalResult<()> {

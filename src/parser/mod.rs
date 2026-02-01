@@ -192,13 +192,7 @@ fn apply_option(
 }
 
 fn parse_ready_probe(value: &str, line_num: usize) -> Result<ReadyProbe, ParseError> {
-    if let Some(rest) = value.strip_prefix("tcp://") {
-        let port: u16 = rest.parse().map_err(|_| ParseError {
-            line: line_num,
-            message: format!("invalid port in ready probe: {}", rest),
-        })?;
-        Ok(ReadyProbe::Tcp { port })
-    } else if let Some(rest) = value.strip_prefix("http://:") {
+    if let Some(rest) = value.strip_prefix("http:") {
         let (port_str, path) = if let Some(idx) = rest.find('/') {
             (&rest[..idx], rest[idx..].to_string())
         } else {
@@ -210,10 +204,12 @@ fn parse_ready_probe(value: &str, line_num: usize) -> Result<ReadyProbe, ParseEr
         })?;
         Ok(ReadyProbe::Http { port, path })
     } else {
-        Err(ParseError {
+        // Default: bare port number means TCP probe
+        let port: u16 = value.parse().map_err(|_| ParseError {
             line: line_num,
             message: format!("invalid ready probe format: {}", value),
-        })
+        })?;
+        Ok(ReadyProbe::Tcp { port })
     }
 }
 
@@ -385,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_ready_probe_tcp() {
-        let input = "db ready='tcp://5432': postgres";
+        let input = "db ready=5432: postgres";
         let procfile = parse(input).unwrap();
         assert_eq!(
             procfile.processes[0].options.ready,
@@ -395,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_ready_probe_http() {
-        let input = "api ready='http://:8080/health': ./api";
+        let input = "api ready=http:8080/health: ./api";
         let procfile = parse(input).unwrap();
         assert_eq!(
             procfile.processes[0].options.ready,
@@ -459,7 +455,7 @@ migrate after=init: just db migrate
 
 # Infrastructure
 redis: redis-server
-postgres ready='tcp://5432': docker run --rm -p 5432:5432 postgres:16
+postgres ready=5432: docker run --rm -p 5432:5432 postgres:16
 
 # Services
 api **/*.go !**_test.go after=postgres debounce=500ms: CGO_ENABLED=0 go run ./cmd/api

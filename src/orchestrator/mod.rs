@@ -405,11 +405,8 @@ impl Orchestrator {
                     if readiness::is_ready(probe) {
                         managed.is_ready = true;
                         managed.ready_probe_started = None;
-                        let msg = formatter.format_control(
-                            &managed.def.name,
-                            ControlEvent::Ready,
-                            "probe passed",
-                        );
+                        let msg =
+                            formatter.format_control(&managed.def.name, ControlEvent::Ready, "ok");
                         println!("{}", msg);
                     } else if let Some(started) = managed.ready_probe_started {
                         let elapsed = started.elapsed();

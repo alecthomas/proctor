@@ -18,7 +18,7 @@ PROCFILE SYNTAX:
 
 OPTIONS:
   after=name[,name2]   Wait for dependencies before starting
-  ready=tcp://PORT     Readiness probe (tcp:// or http://)
+  ready=PORT           Readiness probe (<port> for TCP, http:<port>[/<path>] for HTTP)
   signal=TERM          Reload signal (HUP, INT, TERM, KILL, USR1, USR2)
   debounce=500ms       File watch debounce interval
   dir=./path           Working directory
@@ -26,7 +26,7 @@ OPTIONS:
 
 EXAMPLE:
   migrate! after=db: just db migrate
-  api **/*.go !**_test.go after=migrate ready=tcp://8080: go run ./cmd/api";
+  api **/*.go !**_test.go after=migrate ready=8080: go run ./cmd/api";
 
 #[derive(Parser)]
 #[command(name = "proctor", about = "A process manager with hot reload", after_help = SYNTAX_HELP)]
