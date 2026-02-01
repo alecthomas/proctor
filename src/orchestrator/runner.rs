@@ -95,11 +95,11 @@ pub struct RunningProcess {
 
 impl RunningProcess {
     pub fn signal(&self, sig: Signal) -> io::Result<()> {
-        killpg(self.pgid, sig.to_nix()).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        killpg(self.pgid, sig.to_nix()).map_err(io::Error::other)
     }
 
     pub fn kill(&self) -> io::Result<()> {
-        killpg(self.pgid, NixSignal::SIGKILL).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        killpg(self.pgid, NixSignal::SIGKILL).map_err(io::Error::other)
     }
 
     pub fn take_output(&mut self) -> Option<ProcessOutput> {
@@ -136,8 +136,7 @@ pub fn spawn_process(
     // Create a new process group so we can signal the entire group
     unsafe {
         cmd.pre_exec(|| {
-            nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0))
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+            nix::unistd::setpgid(Pid::from_raw(0), Pid::from_raw(0)).map_err(io::Error::other)
         });
     }
 

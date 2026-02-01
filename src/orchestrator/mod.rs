@@ -6,16 +6,44 @@ use crate::output::{ControlEvent, OutputFormatter};
 use crate::parser::{ProcessDef, Procfile, Signal};
 use crate::readiness;
 use graph::DependencyGraph;
+use nix::sys::termios::{LocalFlags, SetArg, Termios, tcgetattr, tcsetattr};
 use runner::{ProcessOutput, RunningProcess, spawn_process};
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use std::collections::HashMap;
 use std::io;
+use std::os::fd::AsFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use watcher::{Debouncer, FileWatcher};
+
+/// Guard that restores terminal settings when dropped
+struct TerminalGuard {
+    original: Option<Termios>,
+}
+
+impl TerminalGuard {
+    fn new() -> Self {
+        let original = tcgetattr(std::io::stdin().as_fd()).ok();
+        if let Some(ref orig) = original {
+            let mut modified = orig.clone();
+            // Disable ECHOCTL to prevent ^C from being echoed
+            modified.local_flags.remove(LocalFlags::ECHOCTL);
+            let _ = tcsetattr(std::io::stdin().as_fd(), SetArg::TCSANOW, &modified);
+        }
+        Self { original }
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        if let Some(ref orig) = self.original {
+            let _ = tcsetattr(std::io::stdin().as_fd(), SetArg::TCSANOW, orig);
+        }
+    }
+}
 
 pub struct Orchestrator {
     procfile: Procfile,
@@ -207,15 +235,22 @@ impl Orchestrator {
             return Ok(());
         }
 
-        // Set up signal handling
+        // Disable ^C echo (restored on drop)
+        let _terminal_guard = TerminalGuard::new();
+
+        // Set up signal handling (track if it was SIGINT for ^C display)
         let shutdown_flag = Arc::new(AtomicBool::new(false));
+        let sigint_flag = Arc::new(AtomicBool::new(false));
         let shutdown_flag_clone = Arc::clone(&shutdown_flag);
+        let sigint_flag_clone = Arc::clone(&sigint_flag);
 
         let mut signals = Signals::new([SIGINT, SIGTERM])?;
         thread::spawn(move || {
-            for _ in signals.forever() {
+            if let Some(sig) = signals.forever().next() {
+                if sig == SIGINT {
+                    sigint_flag_clone.store(true, Ordering::SeqCst);
+                }
                 shutdown_flag_clone.store(true, Ordering::SeqCst);
-                break;
             }
         });
 
@@ -317,17 +352,17 @@ impl Orchestrator {
                         continue;
                     }
 
-                    if let Some(managed) = processes.get_mut(name) {
-                        if let Some(ref proc) = managed.process {
-                            let msg = formatter.format_control(
-                                &managed.def.name,
-                                ControlEvent::Stopped,
-                                "kill -TERM",
-                            );
-                            println!("{}", msg);
-                            let _ = proc.signal(Signal::Term);
-                            managed.reload_signal_sent = Some(Instant::now());
-                        }
+                    if let Some(managed) = processes.get_mut(name)
+                        && let Some(ref proc) = managed.process
+                    {
+                        let msg = formatter.format_control(
+                            &managed.def.name,
+                            ControlEvent::Stopped,
+                            "kill -TERM",
+                        );
+                        println!("{}", msg);
+                        let _ = proc.signal(Signal::Term);
+                        managed.reload_signal_sent = Some(Instant::now());
                     }
                     shutdown_signaled.insert(name.clone());
                 }
@@ -426,10 +461,10 @@ impl Orchestrator {
             // Check for process exits
             let mut exited = Vec::new();
             for (name, managed) in processes.iter_mut() {
-                if let Some(ref mut proc) = managed.process {
-                    if let Ok(Some(exit_status)) = proc.child.try_wait() {
-                        exited.push((name.clone(), exit_status, proc.pgid));
-                    }
+                if let Some(ref mut proc) = managed.process
+                    && let Ok(Some(exit_status)) = proc.child.try_wait()
+                {
+                    exited.push((name.clone(), exit_status, proc.pgid));
                 }
             }
 
@@ -543,10 +578,10 @@ impl Orchestrator {
                 let names_to_restart: Vec<String> = processes
                     .iter()
                     .filter_map(|(name, managed)| {
-                        if let Some(restart_time) = managed.scheduled_restart {
-                            if Instant::now() >= restart_time {
-                                return Some(name.clone());
-                            }
+                        if let Some(restart_time) = managed.scheduled_restart
+                            && Instant::now() >= restart_time
+                        {
+                            return Some(name.clone());
                         }
                         None
                     })
@@ -576,20 +611,19 @@ impl Orchestrator {
                 // Check per-process shutdown timeout - SIGKILL stragglers individually
                 let now = Instant::now();
                 for managed in processes.values_mut() {
-                    if let Some(signal_time) = managed.reload_signal_sent {
-                        if now.duration_since(signal_time) >= managed.def.options.shutdown {
-                            if let Some(ref proc) = managed.process {
-                                let msg = formatter.format_control(
-                                    &managed.def.name,
-                                    ControlEvent::Stopped,
-                                    "kill -9",
-                                );
-                                println!("{}", msg);
-                                let _ = proc.kill();
-                                // Clear signal_sent to avoid repeated SIGKILL attempts
-                                managed.reload_signal_sent = None;
-                            }
-                        }
+                    if let Some(signal_time) = managed.reload_signal_sent
+                        && now.duration_since(signal_time) >= managed.def.options.shutdown
+                        && let Some(ref proc) = managed.process
+                    {
+                        let msg = formatter.format_control(
+                            &managed.def.name,
+                            ControlEvent::Stopped,
+                            "kill -9",
+                        );
+                        println!("{}", msg);
+                        let _ = proc.kill();
+                        // Clear signal_sent to avoid repeated SIGKILL attempts
+                        managed.reload_signal_sent = None;
                     }
                 }
             }
@@ -597,45 +631,43 @@ impl Orchestrator {
             // Check for reload timeouts (SIGKILL if needed)
             let now = Instant::now();
             for managed in processes.values_mut() {
-                if let Some(signal_time) = managed.reload_signal_sent {
-                    if now.duration_since(signal_time) >= managed.def.options.shutdown {
-                        if let Some(ref proc) = managed.process {
-                            let msg = formatter.format_control(
-                                &managed.def.name,
-                                ControlEvent::Stopped,
-                                "kill -9",
-                            );
-                            println!("{}", msg);
-                            let _ = proc.kill();
-                        }
-                    }
+                if let Some(signal_time) = managed.reload_signal_sent
+                    && now.duration_since(signal_time) >= managed.def.options.shutdown
+                    && let Some(ref proc) = managed.process
+                {
+                    let msg = formatter.format_control(
+                        &managed.def.name,
+                        ControlEvent::Stopped,
+                        "kill -9",
+                    );
+                    println!("{}", msg);
+                    let _ = proc.kill();
                 }
             }
 
             // Handle file watcher events (skip during shutdown)
-            if !shutting_down {
-                if let Some((ref watcher, ref mut debouncer)) = watcher {
-                    while let Some(event) = watcher.try_recv() {
-                        debouncer.record_event(&event.process, &event.path);
-                    }
+            if !shutting_down && let Some((ref watcher, ref mut debouncer)) = watcher {
+                while let Some(event) = watcher.try_recv() {
+                    debouncer.record_event(&event.process, &event.path);
+                }
 
-                    for (name, path) in debouncer.get_ready() {
-                        if let Some(managed) = processes.get_mut(&name) {
-                            if managed.is_running() && !managed.reloading {
-                                managed.reloading = true;
-                                managed.reload_signal_sent = Some(Instant::now());
-                                managed.reload_path = Some(path);
-                                let signal = managed.def.options.signal;
-                                if let Some(ref proc) = managed.process {
-                                    let msg = formatter.format_control(
-                                        &name,
-                                        ControlEvent::Restarting,
-                                        &format!("kill -{}", signal_name_short(signal)),
-                                    );
-                                    println!("{}", msg);
-                                    let _ = proc.signal(signal);
-                                }
-                            }
+                for (name, path) in debouncer.get_ready() {
+                    if let Some(managed) = processes.get_mut(&name)
+                        && managed.is_running()
+                        && !managed.reloading
+                    {
+                        managed.reloading = true;
+                        managed.reload_signal_sent = Some(Instant::now());
+                        managed.reload_path = Some(path);
+                        let signal = managed.def.options.signal;
+                        if let Some(ref proc) = managed.process {
+                            let msg = formatter.format_control(
+                                &name,
+                                ControlEvent::Restarting,
+                                &format!("kill -{}", signal_name_short(signal)),
+                            );
+                            println!("{}", msg);
+                            let _ = proc.signal(signal);
                         }
                     }
                 }
@@ -663,6 +695,11 @@ impl Orchestrator {
         // Disarm the guard - we've cleaned up properly
         guard.disarm();
 
+        // Print ^C if shutdown was triggered by SIGINT
+        if sigint_flag.load(Ordering::SeqCst) {
+            println!("^C");
+        }
+
         Ok(())
     }
 
@@ -682,9 +719,9 @@ impl Orchestrator {
         })?;
 
         let mut running = spawn_process(&managed.def, &self.base_dir, None)?;
-        let output = running.take_output().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::Other, "failed to capture process output")
-        })?;
+        let output = running
+            .take_output()
+            .ok_or_else(|| io::Error::other("failed to capture process output"))?;
 
         // Track the process group for cleanup
         guard.track(running.pgid);

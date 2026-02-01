@@ -1,8 +1,20 @@
-# Proctor: A Process Manager with Hot Reload
+# A simple process manager with hot reload, readiness probes and dependencies
 
 ## Overview
 
 Proctor is a local development process manager that extends the Procfile format with file watching, hot reload, dependency ordering, and coloured log prefixing. It aims to replace ad-hoc combinations of `foreman`, `watchexec`, and shell scripts with a single declarative file.
+
+## Installation
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/alecthomas/proctor/master/install.sh | sh
+```
+
+To install a specific version or to a custom directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/alecthomas/proctor/master/install.sh | INSTALL_DIR=~/.local/bin sh -s v0.1.0
+```
 
 ## Procfile Syntax
 
@@ -116,7 +128,7 @@ If a long-running process exits unexpectedly (not due to a reload or shutdown):
 
 - Restart immediately on first failure.
 - Apply exponential backoff on consecutive failures: 1s, 2s, 4s, 8s, 16s, capped at 32s.
-- Reset the backoff counter after 60s of successful running.
+- Gradually reset the backoff level while running stably (decrease one level after running for the current backoff duration).
 - Log each restart with the exit code or signal.
 
 ### Shutdown
@@ -197,4 +209,3 @@ frontend web/**/*.{ts,tsx,css} dir=./web: \
 - Container orchestration (use `docker compose` for that).
 - Language-specific build intelligence (use the appropriate build tool in the command).
 - Windows support (initial version targets Unix-like systems).
-

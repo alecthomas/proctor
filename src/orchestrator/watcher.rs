@@ -159,18 +159,10 @@ fn handle_event(
     }
 }
 
+#[derive(Default)]
 pub struct Debouncer {
     pending: HashMap<String, (Instant, String)>,
     debounce_durations: HashMap<String, Duration>,
-}
-
-impl Default for Debouncer {
-    fn default() -> Self {
-        Self {
-            pending: HashMap::new(),
-            debounce_durations: HashMap::new(),
-        }
-    }
 }
 
 impl Debouncer {

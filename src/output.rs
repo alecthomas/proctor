@@ -53,7 +53,7 @@ fn color_for_name(name: &str) -> Color {
             let b = idx % 6;
             let sum = r + g + b;
             // Exclude very dark (sum < 4) and very light (sum > 11)
-            if sum < 4 || sum > 11 {
+            if !(4..=11).contains(&sum) {
                 return false;
             }
             // Exclude reddish colors (r dominant) - they look like errors
