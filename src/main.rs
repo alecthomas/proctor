@@ -49,7 +49,20 @@ struct Cli {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    // Build args: program name + PROCTOR_FLAGS + actual args
+    let mut args: Vec<String> = vec![std::env::args().next().unwrap_or_default()];
+    if let Ok(flags) = std::env::var("PROCTOR_FLAGS") {
+        match shell_words::split(&flags) {
+            Ok(parsed) => args.extend(parsed),
+            Err(e) => {
+                eprintln!("error: invalid PROCTOR_FLAGS: {}", e);
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    args.extend(std::env::args().skip(1));
+
+    let cli = Cli::parse_from(args);
 
     let procfile = match load_procfile(&cli.procfile) {
         Ok(p) => p,

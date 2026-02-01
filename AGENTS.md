@@ -7,3 +7,5 @@ Use the libraries already added in @Cargo.toml.
 @README.md describes the design of this command-line tool.
 
 We use todo2 for persistent task tracking.
+
+ALWAYS keep the README up to date with features.

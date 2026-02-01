@@ -8,6 +8,7 @@ clap = { version = "4.5.56", features = ["derive"] }
 globset = "0.4"
 nix = { version = "0.29", features = ["signal", "process", "term"] }
 notify = "8"
+shell-words = "1.1.1"
 signal-hook = "0.3"
 winnow = "0.7.14"
 yansi = "1.0.1"

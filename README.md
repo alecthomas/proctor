@@ -16,6 +16,12 @@ To install a specific version or to a custom directory:
 curl -fsSL https://raw.githubusercontent.com/alecthomas/proctor/master/install.sh | INSTALL_DIR=~/.local/bin sh -s v0.1.0
 ```
 
+## Environment Variables
+
+| Variable        | Description                                      |
+|-----------------|--------------------------------------------------|
+| `PROCTOR_FLAGS` | Default flags (shell-quoted), e.g. `-dt --check` |
+
 ## Procfile Syntax
 
 ### Line format
