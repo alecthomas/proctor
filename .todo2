@@ -219,26 +219,31 @@
       "text": "Crash recovery and restart",
       "priority": "high",
       "creation": 1769937703,
+      "completion": 1769946037,
       "tasks": [
         {
           "text": "Immediate restart on first failure",
           "priority": "medium",
-          "creation": 1769937707
+          "creation": 1769937707,
+          "completion": 1769946037
         },
         {
           "text": "Exponential backoff (1s, 2s, 4s, 8s... cap 30s)",
           "priority": "medium",
-          "creation": 1769937708
+          "creation": 1769937708,
+          "completion": 1769946037
         },
         {
           "text": "Reset backoff after 60s successful run",
           "priority": "medium",
-          "creation": 1769937709
+          "creation": 1769937709,
+          "completion": 1769946037
         },
         {
           "text": "Log restarts with exit code/signal",
           "priority": "medium",
-          "creation": 1769937710
+          "creation": 1769937710,
+          "completion": 1769946037
         }
       ]
     },

@@ -69,6 +69,11 @@ struct ManagedProcess {
     reloading: bool,
     reload_signal_sent: Option<Instant>,
     reload_path: Option<String>,
+    // Crash recovery state
+    consecutive_failures: u32,
+    last_start_time: Option<Instant>,
+    scheduled_restart: Option<Instant>,
+    last_backoff_decrease: Option<Instant>,
 }
 
 impl ManagedProcess {
@@ -81,11 +86,29 @@ impl ManagedProcess {
             reloading: false,
             reload_signal_sent: None,
             reload_path: None,
+            consecutive_failures: 0,
+            last_start_time: None,
+            scheduled_restart: None,
+            last_backoff_decrease: None,
         }
     }
 
     fn is_running(&self) -> bool {
         self.process.is_some()
+    }
+
+    fn backoff_for_failures(failures: u32) -> Duration {
+        if failures == 0 {
+            Duration::ZERO
+        } else {
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (capped)
+            let secs = 1u64 << (failures - 1).min(5);
+            Duration::from_secs(secs.min(30))
+        }
+    }
+
+    fn calculate_backoff(&self) -> Duration {
+        Self::backoff_for_failures(self.consecutive_failures)
     }
 }
 
@@ -230,6 +253,23 @@ impl Orchestrator {
                 }
             }
 
+            // Gradually decrease backoff level while running stably
+            // If running for the duration of the current backoff level, decrease by one level
+            let now = Instant::now();
+            for managed in processes.values_mut() {
+                if managed.is_running() && managed.consecutive_failures > 0 {
+                    let current_backoff = managed.calculate_backoff();
+                    let reference_time = managed
+                        .last_backoff_decrease
+                        .or(managed.last_start_time)
+                        .unwrap_or(now);
+                    if now.duration_since(reference_time) >= current_backoff {
+                        managed.consecutive_failures -= 1;
+                        managed.last_backoff_decrease = Some(now);
+                    }
+                }
+            }
+
             // Check for process exits
             let mut exited = Vec::new();
             for (name, managed) in processes.iter_mut() {
@@ -278,6 +318,8 @@ impl Orchestrator {
                     let path = managed.reload_path.take().unwrap_or_default();
                     managed.reloading = false;
                     managed.reload_signal_sent = None;
+                    // Reset failure count on intentional reload
+                    managed.consecutive_failures = 0;
                     let msg = formatter.format_control(&name, &format!("Restarting ({})", path));
                     println!("{}", msg);
                     if let Err(e) =
@@ -285,6 +327,48 @@ impl Orchestrator {
                     {
                         let msg =
                             formatter.format_error(&name, &format!("failed to restart: {}", e));
+                        println!("{}", msg);
+                    }
+                } else if !shutting_down && !managed.def.oneshot && status != ProcessStatus::Success
+                {
+                    // Crash recovery for long-running processes
+                    managed.consecutive_failures += 1;
+                    let backoff = managed.calculate_backoff();
+                    let restart_time = Instant::now() + backoff;
+                    managed.scheduled_restart = Some(restart_time);
+
+                    let msg = if backoff.is_zero() {
+                        format!("Crashed ({}), restarting immediately", status)
+                    } else {
+                        format!("Crashed ({}), restarting in {}s", status, backoff.as_secs())
+                    };
+                    let msg = formatter.format_error(&name, &msg);
+                    println!("{}", msg);
+                }
+            }
+
+            // Handle scheduled restarts (crash recovery)
+            if !shutting_down {
+                let names_to_restart: Vec<String> = processes
+                    .iter()
+                    .filter_map(|(name, managed)| {
+                        if let Some(restart_time) = managed.scheduled_restart {
+                            if Instant::now() >= restart_time {
+                                return Some(name.clone());
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+
+                for name in names_to_restart {
+                    let msg = formatter.format_control(&name, "Restarting after crash");
+                    println!("{}", msg);
+                    if let Err(e) =
+                        self.spawn_managed(&mut processes, &name, &formatter, &mut guard)
+                    {
+                        let msg =
+                            formatter.format_error(&name, &format!("Failed to restart: {}", e));
                         println!("{}", msg);
                     }
                 }
@@ -418,6 +502,9 @@ impl Orchestrator {
         managed.process = Some(running);
         managed.output = Some(output);
         managed.is_ready = is_ready;
+        managed.last_start_time = Some(Instant::now());
+        managed.scheduled_restart = None;
+        managed.last_backoff_decrease = None;
 
         if is_ready {
             let msg = formatter.format_control(name, "Ready (started)");
@@ -506,5 +593,48 @@ mod tests {
         let procfile = simple_procfile(vec![("fail", "exit 42")]);
         let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap());
         orchestrator.run().unwrap();
+    }
+
+    #[test]
+    fn test_backoff_calculation() {
+        let def = ProcessDef {
+            name: "test".to_string(),
+            watch_patterns: vec![],
+            options: ProcessOptions::default(),
+            command: "echo test".to_string(),
+            oneshot: false,
+        };
+
+        let mut managed = ManagedProcess::new(def);
+
+        // No failures = no backoff
+        assert_eq!(managed.calculate_backoff(), Duration::ZERO);
+
+        // First failure = 1s
+        managed.consecutive_failures = 1;
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(1));
+
+        // Second failure = 2s
+        managed.consecutive_failures = 2;
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(2));
+
+        // Third failure = 4s
+        managed.consecutive_failures = 3;
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(4));
+
+        // Fourth failure = 8s
+        managed.consecutive_failures = 4;
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(8));
+
+        // Fifth failure = 16s
+        managed.consecutive_failures = 5;
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(16));
+
+        // Sixth+ failure = 30s (capped)
+        managed.consecutive_failures = 6;
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(30));
+
+        managed.consecutive_failures = 10;
+        assert_eq!(managed.calculate_backoff(), Duration::from_secs(30));
     }
 }
