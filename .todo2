@@ -47,12 +47,14 @@
         {
           "text": "Process group management (for signaling)",
           "priority": "medium",
-          "creation": 1769937677
+          "creation": 1769937677,
+          "completion": 1769941245
         },
         {
           "text": "Capture stdout/stderr streams",
           "priority": "medium",
-          "creation": 1769937678
+          "creation": 1769937678,
+          "completion": 1769941318
         }
       ]
     },
