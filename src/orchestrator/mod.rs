@@ -69,6 +69,7 @@ struct ManagedProcess {
     output: Option<ProcessOutput>,
     is_ready: bool,
     ready_probe_started: Option<Instant>,
+    last_probe_check: Option<Instant>,
     started: bool, // Has this process been started at least once?
     reloading: bool,
     reload_signal_sent: Option<Instant>,
@@ -88,6 +89,7 @@ impl ManagedProcess {
             output: None,
             is_ready: false,
             ready_probe_started: None,
+            last_probe_check: None,
             started: false,
             reloading: false,
             reload_signal_sent: None,
@@ -340,8 +342,9 @@ impl Orchestrator {
                 }
             }
 
-            // Check readiness probes
+            // Check readiness probes (every 250ms per process)
             let probe_timeout = Duration::from_secs(30);
+            let probe_interval = Duration::from_millis(250);
             for managed in processes.values_mut() {
                 if managed.is_ready || !managed.is_running() {
                     continue;
@@ -353,6 +356,17 @@ impl Orchestrator {
                         managed.ready_probe_started = Some(Instant::now());
                     }
 
+                    // Rate limit probe checks to 250ms intervals
+                    let should_check = managed
+                        .last_probe_check
+                        .map(|t| t.elapsed() >= probe_interval)
+                        .unwrap_or(true);
+
+                    if !should_check {
+                        continue;
+                    }
+                    managed.last_probe_check = Some(Instant::now());
+
                     if readiness::is_ready(probe) {
                         managed.is_ready = true;
                         managed.ready_probe_started = None;
@@ -363,15 +377,27 @@ impl Orchestrator {
                         );
                         println!("{}", msg);
                     } else if let Some(started) = managed.ready_probe_started {
-                        if started.elapsed() >= probe_timeout {
+                        let elapsed = started.elapsed();
+                        if elapsed >= probe_timeout {
                             managed.ready_probe_started = None;
                             let msg = formatter.format_control(
                                 &managed.def.name,
                                 ControlEvent::TimedOut,
-                                "probe timed out after 30s  (aborting)",
+                                "probe timed out after 30s (aborting)",
                             );
                             println!("{}", msg);
                             shutting_down = true;
+                        } else {
+                            // Log every 5s after initial 5s grace period
+                            let secs = elapsed.as_secs();
+                            if secs >= 5 && secs % 5 == 0 && elapsed.subsec_millis() < 300 {
+                                let msg = formatter.format_control(
+                                    &managed.def.name,
+                                    ControlEvent::TimedOut,
+                                    &format!("probe pending ({}s)", secs),
+                                );
+                                println!("{}", msg);
+                            }
                         }
                     }
                 }
