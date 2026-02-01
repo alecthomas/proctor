@@ -118,7 +118,8 @@ fn parse_line(line: &str, line_num: usize) -> Result<ProcessDef, ParseError> {
             let value = &decl_tokens[i + 2];
             apply_option(&mut options, key, value, line_num)?;
             i += 3;
-        } else if is_glob_pattern(token) {
+        } else {
+            // Any non-option token is treated as a watch pattern (glob or bare file path)
             let (pattern, exclude) = if let Some(p) = token.strip_prefix('!') {
                 (p.to_string(), true)
             } else {
@@ -126,11 +127,6 @@ fn parse_line(line: &str, line_num: usize) -> Result<ProcessDef, ParseError> {
             };
             watch_patterns.push(GlobPattern { pattern, exclude });
             i += 1;
-        } else {
-            return Err(ParseError {
-                line: line_num,
-                message: format!("unexpected token in declaration: {}", token),
-            });
         }
     }
 
@@ -155,15 +151,6 @@ fn is_valid_name(name: &str) -> bool {
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
-
-fn is_glob_pattern(s: &str) -> bool {
-    let check = s.strip_prefix('!').unwrap_or(s);
-    check.contains('*')
-        || check.contains('?')
-        || check.contains('{')
-        || check.contains('[')
-        || check.contains('/')
 }
 
 fn apply_option(
@@ -353,6 +340,16 @@ mod tests {
         let procfile = parse(input).unwrap();
         assert_eq!(procfile.processes[0].watch_patterns.len(), 1);
         assert_eq!(procfile.processes[0].watch_patterns[0].pattern, "**/*.go");
+        assert!(!procfile.processes[0].watch_patterns[0].exclude);
+    }
+
+    #[test]
+    fn test_with_bare_file_path() {
+        let input = "echo Procfile: echo hello";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes[0].name, "echo");
+        assert_eq!(procfile.processes[0].watch_patterns.len(), 1);
+        assert_eq!(procfile.processes[0].watch_patterns[0].pattern, "Procfile");
         assert!(!procfile.processes[0].watch_patterns[0].exclude);
     }
 

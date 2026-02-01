@@ -9,7 +9,7 @@ Proctor is a local development process manager that extends the Procfile format 
 ### Line format
 
 ```
-<proc>[!] [!]<glob>... [option=value ...]: [ENV=VALUE ...] <command>
+<proc>[!] [!]<pattern>... [option=value ...]: [ENV=VALUE ...] <command>
 ```
 
 Each line defines a process. The colon (`:`) separates the **declaration** (left) from the **execution** (right). Tokenisation uses shell-style rules throughout: bare words, `'single quoted'` (literal), and `"double quoted"` (with escape sequences).
@@ -41,17 +41,18 @@ migrate!: just db migrate    # one-shot: ready when it exits 0
 api: go run ./cmd/api        # long-running: ready immediately on start
 ```
 
-### Glob patterns
+### Watch patterns
 
-Any token containing glob characters (`*`, `?`, `{`, `[`) or a `/` is interpreted as a file watch pattern. Patterns follow standard globbing rules including `**` for recursive matching and `{a,b}` for alternation.
+Any token after the process name that is not an option (`key=value`) is interpreted as a file watch pattern. Patterns follow standard globbing rules including `**` for recursive matching and `{a,b}` for alternation. Bare file names are also supported.
 
 A token prefixed with `!` is an exclusion pattern.
 
 ```
 api **/*.go !**_test.go !vendor/**:
+echo Procfile: echo "Procfile changed"
 ```
 
-If no glob patterns are present, the process is not file-watched.
+If no watch patterns are present, the process is not file-watched.
 
 ### Options
 
