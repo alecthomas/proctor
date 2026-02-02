@@ -25,7 +25,7 @@ Proctor is a local development process manager that is compatible with and exten
 postgres ready=5432: docker run --rm -p 5432:5432 postgres:16
 
 # One-shot: run migrations before anything else (multiline command block)
-migrate! dir=./db after=postgres:
+migrate! **/*.sql dir=./db after=postgres:
     echo "Running migrations..."
     psql -f schema.sql
     psql -f seeds.sql

@@ -791,6 +791,9 @@ impl Orchestrator {
             .get_mut(name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("process '{}' not found", name)))?;
 
+        let msg = formatter.format_control(name, ControlEvent::Starting, "starting");
+        println!("{}", msg);
+
         if self.debug {
             let msg = formatter.format_control(name, ControlEvent::Exec, &managed.def.command);
             println!("{}", msg);

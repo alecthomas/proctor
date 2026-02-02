@@ -6,6 +6,7 @@ use yansi::{Color, Paint};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlEvent {
+    Starting,
     Ready,
     Finished,
     Stopped,
@@ -18,6 +19,7 @@ pub enum ControlEvent {
 impl ControlEvent {
     fn symbol(&self) -> &'static str {
         match self {
+            ControlEvent::Starting => "▶",
             ControlEvent::Ready => "●",
             ControlEvent::Finished => "✔",
             ControlEvent::Stopped => "☠",
@@ -30,6 +32,7 @@ impl ControlEvent {
 
     fn color(&self) -> Color {
         match self {
+            ControlEvent::Starting => Color::Cyan,
             ControlEvent::Ready => Color::Green,
             ControlEvent::Finished => Color::Green,
             ControlEvent::Stopped => Color::Red,
