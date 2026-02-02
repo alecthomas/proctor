@@ -32,7 +32,11 @@ pub fn wait_for_ready(probe: &ReadyProbe) -> ReadinessResult {
 fn check_probe(probe: &ReadyProbe) -> bool {
     match probe {
         ReadyProbe::Tcp { port } => check_tcp(*port),
-        ReadyProbe::Http { port, path } => check_http(*port, path),
+        ReadyProbe::Http {
+            port,
+            path,
+            expected_status,
+        } => check_http(*port, path, *expected_status),
     }
 }
 
@@ -44,14 +48,18 @@ fn check_tcp(port: u16) -> bool {
         .any(|addr| TcpStream::connect_timeout(&addr.parse().unwrap(), CONNECT_TIMEOUT).is_ok())
 }
 
-/// Attempts an HTTP GET to localhost:port/path, returns true if 2xx response.
+/// Attempts an HTTP GET to localhost:port/path.
+/// If expected_status is Some, returns true only if status matches exactly.
+/// Otherwise returns true for any non-5xx response.
 /// Tries both IPv4 and IPv6 loopback addresses.
-fn check_http(port: u16, path: &str) -> bool {
+fn check_http(port: u16, path: &str, expected_status: Option<u16>) -> bool {
     let addrs = [format!("127.0.0.1:{}", port), format!("[::1]:{}", port)];
-    addrs.iter().any(|addr| check_http_addr(addr, port, path))
+    addrs
+        .iter()
+        .any(|addr| check_http_addr(addr, port, path, expected_status))
 }
 
-fn check_http_addr(addr: &str, port: u16, path: &str) -> bool {
+fn check_http_addr(addr: &str, port: u16, path: &str, expected_status: Option<u16>) -> bool {
     // Build a minimal HTTP/1.0 request
     let path = if path.starts_with('/') {
         path.to_string()
@@ -88,10 +96,12 @@ fn check_http_addr(addr: &str, port: u16, path: &str) -> bool {
         Err(_) => return false,
     };
 
-    // Parse HTTP response status line - accept any response < 500
-    // (4xx client errors still indicate the server is running and healthy)
     let response_str = String::from_utf8_lossy(&response[..n]);
-    parse_http_status(&response_str).map(|code| code < 500).unwrap_or(false)
+    match (parse_http_status(&response_str), expected_status) {
+        (Some(code), Some(expected)) => code == expected,
+        (Some(code), None) => code < 500,
+        (None, _) => false,
+    }
 }
 
 /// Parses the status code from an HTTP response.
@@ -150,7 +160,7 @@ mod tests {
             }
         });
 
-        assert!(check_http(port, "/health"));
+        assert!(check_http(port, "/health", None));
         handle.join().unwrap();
     }
 
@@ -167,7 +177,7 @@ mod tests {
             }
         });
 
-        assert!(!check_http(port, "/"));
+        assert!(!check_http(port, "/", None));
         handle.join().unwrap();
     }
 
@@ -184,13 +194,13 @@ mod tests {
             }
         });
 
-        assert!(check_http(port, "/health"));
+        assert!(check_http(port, "/health", None));
         handle.join().unwrap();
     }
 
     #[test]
     fn test_http_probe_failure() {
-        assert!(!check_http(59998, "/"));
+        assert!(!check_http(59998, "/", None));
     }
 
     #[test]
@@ -251,7 +261,59 @@ mod tests {
             }
         });
 
-        assert!(check_http(port, "/health"));
+        assert!(check_http(port, "/health", None));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_http_probe_exact_status_match() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let handle = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::Write;
+                let response = "HTTP/1.0 201 Created\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        assert!(check_http(port, "/", Some(201)));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_http_probe_exact_status_mismatch() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let handle = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::Write;
+                let response = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        assert!(!check_http(port, "/", Some(201)));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_http_probe_exact_status_5xx() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let handle = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::Write;
+                let response = "HTTP/1.0 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        // With exact status, even 5xx can match if explicitly expected
+        assert!(check_http(port, "/", Some(503)));
         handle.join().unwrap();
     }
 }

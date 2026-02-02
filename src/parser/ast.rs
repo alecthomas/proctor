@@ -47,8 +47,14 @@ impl Default for ProcessOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadyProbe {
-    Tcp { port: u16 },
-    Http { port: u16, path: String },
+    Tcp {
+        port: u16,
+    },
+    Http {
+        port: u16,
+        path: String,
+        expected_status: Option<u16>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

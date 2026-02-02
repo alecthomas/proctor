@@ -178,9 +178,16 @@ fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<
         // Check for key=value option (three tokens: key, =, value)
         if i + 2 < decl_tokens.len() && decl_tokens[i + 1] == "=" {
             let key = token;
-            let value = &decl_tokens[i + 2];
-            apply_option(&mut options, key, value, line_num)?;
+            let mut value = decl_tokens[i + 2].clone();
             i += 3;
+            // For ready= option, consume additional =value suffix if present
+            // (handles http:port/path=status format)
+            if key == "ready" && i + 1 < decl_tokens.len() && decl_tokens[i] == "=" {
+                value.push('=');
+                value.push_str(&decl_tokens[i + 1]);
+                i += 2;
+            }
+            apply_option(&mut options, key, &value, line_num)?;
         } else {
             // Any non-option token is treated as a watch pattern (glob or bare file path)
             let (pattern, exclude) = if let Some(p) = token.strip_prefix('!') {
@@ -256,6 +263,19 @@ fn apply_option(opts: &mut ProcessOptions, key: &str, value: &str, line_num: usi
 
 fn parse_ready_probe(value: &str, line_num: usize) -> Result<ReadyProbe, ParseError> {
     if let Some(rest) = value.strip_prefix("http:") {
+        // Parse format: <port>[/<path>][=<status>]
+        // First, check for =<status> suffix
+        let (rest, expected_status) = if let Some(idx) = rest.rfind('=') {
+            let status_str = &rest[idx + 1..];
+            let status: u16 = status_str.parse().map_err(|_| ParseError {
+                line: line_num,
+                message: format!("invalid status code in ready probe: {}", status_str),
+            })?;
+            (&rest[..idx], Some(status))
+        } else {
+            (rest, None)
+        };
+
         let (port_str, path) = if let Some(idx) = rest.find('/') {
             (&rest[..idx], rest[idx..].to_string())
         } else {
@@ -265,7 +285,11 @@ fn parse_ready_probe(value: &str, line_num: usize) -> Result<ReadyProbe, ParseEr
             line: line_num,
             message: format!("invalid port in ready probe: {}", port_str),
         })?;
-        Ok(ReadyProbe::Http { port, path })
+        Ok(ReadyProbe::Http {
+            port,
+            path,
+            expected_status,
+        })
     } else {
         // Default: bare port number means TCP probe
         let port: u16 = value.parse().map_err(|_| ParseError {
@@ -451,7 +475,36 @@ mod tests {
             procfile.processes[0].options.ready,
             Some(ReadyProbe::Http {
                 port: 8080,
-                path: "/health".to_string()
+                path: "/health".to_string(),
+                expected_status: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_ready_probe_http_with_status() {
+        let input = "api ready=http:8080/health=200: ./api";
+        let procfile = parse(input).unwrap();
+        assert_eq!(
+            procfile.processes[0].options.ready,
+            Some(ReadyProbe::Http {
+                port: 8080,
+                path: "/health".to_string(),
+                expected_status: Some(200),
+            })
+        );
+    }
+
+    #[test]
+    fn test_ready_probe_http_with_status_no_path() {
+        let input = "api ready=http:8080=201: ./api";
+        let procfile = parse(input).unwrap();
+        assert_eq!(
+            procfile.processes[0].options.ready,
+            Some(ReadyProbe::Http {
+                port: 8080,
+                path: "/".to_string(),
+                expected_status: Some(201),
             })
         );
     }

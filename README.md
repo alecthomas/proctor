@@ -204,11 +204,14 @@ On `SIGINT` or `SIGTERM` to proctor itself:
 
 The `ready` option defines how proctor determines a process is ready (for `after=` dependents).
 
-| Format                 | Behaviour                                                    |
-|------------------------|--------------------------------------------------------------|
-| `<port>`               | Poll `localhost:<port>` until a TCP connection succeeds      |
-| `http:<port>[/<path>]` | Poll `http://localhost:<port>[/<path>]` for a non-5xx response |
-| (none)                 | Long-running: ready immediately on start. One-shot: ready on exit 0. |
+| Format                            | Behaviour                                                              |
+|-----------------------------------|------------------------------------------------------------------------|
+| `<port>`                          | Poll `localhost:<port>` until a TCP connection succeeds                |
+| `http:<port>[/<path>][=<status>]` | Poll `http://localhost:<port>[/<path>]` for the expected status code   |
+
+If no `=<status>` is specified for HTTP probes, any non-5xx response is accepted. If `=<status>` is specified, only that exact status code is accepted.
+
+With no `ready` option: long-running processes are ready immediately on start; one-shot processes are ready on exit 0.
 
 Readiness polling begins when the process starts, with a 250ms interval and a 30s timeout. If the timeout is exceeded, proctor logs an error and continues (does not abort).
 
