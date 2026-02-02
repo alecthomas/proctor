@@ -83,15 +83,17 @@ pub struct OutputFormatter {
     max_name_len: usize,
     start_time: Instant,
     show_timestamp: bool,
+    debug: bool,
 }
 
 impl OutputFormatter {
-    pub fn new(process_names: &[&str], show_timestamp: bool) -> Self {
+    pub fn new(process_names: &[&str], show_timestamp: bool, debug: bool) -> Self {
         let max_name_len = process_names.iter().map(|n| n.len()).max().unwrap_or(0);
         Self {
             max_name_len,
             start_time: Instant::now(),
             show_timestamp,
+            debug,
         }
     }
 
@@ -114,17 +116,32 @@ impl OutputFormatter {
         }
     }
 
-    pub fn format(&self, line: &OutputLine) -> String {
+    /// Format a PID suffix with consistent width for alignment.
+    /// When debug mode is on, always reserves space for " (NNNNN)" (8 chars).
+    fn format_pid_suffix(&self, pid: Option<i32>) -> String {
+        if self.debug {
+            match pid {
+                Some(p) => format!(" ({:>5})", p),
+                None => " ".repeat(8),
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn format(&self, line: &OutputLine, pid: Option<i32>) -> String {
         let color = color_for_name(&line.process);
+        let pid_suffix = self.format_pid_suffix(pid);
         let prefix = if self.show_timestamp {
             format!(
-                "{:>width$} │ {} │",
+                "{:>width$}{} │ {} │",
                 line.process,
+                pid_suffix,
                 self.format_elapsed(),
                 width = self.max_name_len
             )
         } else {
-            format!("{:>width$} │", line.process, width = self.max_name_len)
+            format!("{:>width$}{} │", line.process, pid_suffix, width = self.max_name_len)
         };
         let styled_prefix = prefix.paint(color);
 
@@ -134,18 +151,26 @@ impl OutputFormatter {
         }
     }
 
-    pub fn format_control(&self, process: &str, event: ControlEvent, message: &str) -> String {
+    pub fn format_control(&self, process: &str, event: ControlEvent, message: &str, pid: Option<i32>) -> String {
         let process_color = color_for_name(process);
+        let pid_suffix = self.format_pid_suffix(pid);
         let prefix = if self.show_timestamp {
             format!(
-                "{:>width$} │ {} {}",
+                "{:>width$}{} │ {} {}",
                 process,
+                pid_suffix,
                 self.format_elapsed(),
                 event.symbol(),
                 width = self.max_name_len
             )
         } else {
-            format!("{:>width$} {}", process, event.symbol(), width = self.max_name_len)
+            format!(
+                "{:>width$}{} {}",
+                process,
+                pid_suffix,
+                event.symbol(),
+                width = self.max_name_len
+            )
         };
         let styled_prefix = prefix.paint(process_color);
 
@@ -156,13 +181,14 @@ impl OutputFormatter {
             for line in &lines[1..] {
                 let continuation_prefix = if self.show_timestamp {
                     format!(
-                        "{:>width$} │ {} ↳",
+                        "{:>width$}{} │ {} ↳",
                         "",
+                        pid_suffix,
                         self.format_elapsed(),
                         width = self.max_name_len
                     )
                 } else {
-                    format!("{:>width$} ↳", "", width = self.max_name_len)
+                    format!("{:>width$}{} ↳", "", pid_suffix, width = self.max_name_len)
                 };
                 let styled_continuation = continuation_prefix.paint(process_color);
                 result.push('\n');
@@ -198,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_prefix_alignment() {
-        let formatter = OutputFormatter::new(&["api", "worker", "frontend"], false);
+        let formatter = OutputFormatter::new(&["api", "worker", "frontend"], false, false);
 
         let line = OutputLine {
             process: "api".to_string(),
@@ -206,7 +232,7 @@ mod tests {
             content: "hello".to_string(),
         };
 
-        let output = formatter.format(&line);
+        let output = formatter.format(&line, None);
         // "frontend" is 8 chars, so "api" should be padded to 8
         // The output contains ANSI codes, so we check the structure
         assert!(output.contains("api"));
@@ -216,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_stderr_styling() {
-        let formatter = OutputFormatter::new(&["test"], false);
+        let formatter = OutputFormatter::new(&["test"], false, false);
 
         let stdout_line = OutputLine {
             process: "test".to_string(),
@@ -230,8 +256,8 @@ mod tests {
             content: "err".to_string(),
         };
 
-        let stdout_output = formatter.format(&stdout_line);
-        let stderr_output = formatter.format(&stderr_line);
+        let stdout_output = formatter.format(&stdout_line, None);
+        let stderr_output = formatter.format(&stderr_line, None);
 
         // Both should contain the content
         assert!(stdout_output.contains("out"));
@@ -239,5 +265,33 @@ mod tests {
 
         // Stderr should have different styling (dim/italic adds more ANSI codes)
         assert_ne!(stdout_output.len(), stderr_output.len());
+    }
+
+    #[test]
+    fn test_pid_in_debug_mode() {
+        let formatter = OutputFormatter::new(&["api"], false, true);
+
+        let line = OutputLine {
+            process: "api".to_string(),
+            source: OutputSource::Stdout,
+            content: "hello".to_string(),
+        };
+
+        let output = formatter.format(&line, Some(12345));
+        assert!(output.contains("(12345)"));
+    }
+
+    #[test]
+    fn test_no_pid_without_debug() {
+        let formatter = OutputFormatter::new(&["api"], false, false);
+
+        let line = OutputLine {
+            process: "api".to_string(),
+            source: OutputSource::Stdout,
+            content: "hello".to_string(),
+        };
+
+        let output = formatter.format(&line, Some(12345));
+        assert!(!output.contains("(12345)"));
     }
 }

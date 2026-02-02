@@ -135,6 +135,10 @@ impl ManagedProcess {
         self.process.is_some()
     }
 
+    fn pid(&self) -> Option<i32> {
+        self.process.as_ref().map(|p| p.pgid.as_raw())
+    }
+
     fn backoff_for_failures(failures: u32) -> Duration {
         if failures == 0 {
             Duration::ZERO
@@ -218,7 +222,8 @@ impl Orchestrator {
         for (name, deps) in to_start {
             let after = if deps.is_empty() { None } else { Some(deps.join(", ")) };
             if let Err(e) = self.spawn_managed(processes, &name, formatter, guard, after.as_deref()) {
-                let msg = formatter.format_control(&name, ControlEvent::Crashed, &format!("failed to start: {}", e));
+                let msg =
+                    formatter.format_control(&name, ControlEvent::Crashed, &format!("failed to start: {}", e), None);
                 println!("{}", msg);
             }
         }
@@ -267,6 +272,7 @@ impl Orchestrator {
                             &dep_name,
                             ControlEvent::Restarting,
                             &format!("kill -{} ({} reloaded)", signal_name_short(signal), name),
+                            Some(proc.pgid.as_raw()),
                         );
                         println!("{}", msg);
                         let _ = proc.signal(signal);
@@ -278,13 +284,15 @@ impl Orchestrator {
                     dep.is_ready = false;
                     dep.consecutive_failures = 0;
                 }
-                let msg = formatter.format_control(&dep_name, ControlEvent::Restarting, &format!("{} reloaded", name));
+                let msg =
+                    formatter.format_control(&dep_name, ControlEvent::Restarting, &format!("{} reloaded", name), None);
                 println!("{}", msg);
                 if let Err(e) = self.spawn_managed(processes, &dep_name, formatter, guard, None) {
                     let msg = formatter.format_control(
                         &dep_name,
                         ControlEvent::Crashed,
                         &format!("failed to restart: {}", e),
+                        None,
                     );
                     println!("{}", msg);
                 }
@@ -317,7 +325,7 @@ impl Orchestrator {
         });
 
         let process_names: Vec<&str> = self.procfile.processes.iter().map(|p| p.name.as_str()).collect();
-        let formatter = OutputFormatter::new(&process_names, self.timestamp);
+        let formatter = OutputFormatter::new(&process_names, self.timestamp, self.debug);
 
         let mut processes: HashMap<String, ManagedProcess> = HashMap::new();
 
@@ -359,8 +367,12 @@ impl Orchestrator {
             match FileWatcher::new(&self.base_dir, watch_processes) {
                 Ok(w) => Some((w, debouncer)),
                 Err(e) => {
-                    let msg =
-                        formatter.format_control("proctor", ControlEvent::Crashed, &format!("watcher error: {}", e));
+                    let msg = formatter.format_control(
+                        "proctor",
+                        ControlEvent::Crashed,
+                        &format!("watcher error: {}", e),
+                        None,
+                    );
                     println!("{}", msg);
                     None
                 }
@@ -408,7 +420,12 @@ impl Orchestrator {
                     if let Some(managed) = processes.get_mut(name)
                         && let Some(ref proc) = managed.process
                     {
-                        let msg = formatter.format_control(&managed.def.name, ControlEvent::Stopped, "kill -TERM");
+                        let msg = formatter.format_control(
+                            &managed.def.name,
+                            ControlEvent::Stopped,
+                            "kill -TERM",
+                            Some(proc.pgid.as_raw()),
+                        );
                         println!("{}", msg);
                         let _ = proc.signal(Signal::Term);
                         managed.reload_signal_sent = Some(Instant::now());
@@ -419,8 +436,9 @@ impl Orchestrator {
             // Collect output from all processes
             for managed in processes.values_mut() {
                 if let Some(ref output) = managed.output {
+                    let pid = managed.pid();
                     while let Some(line) = output.try_recv() {
-                        let formatted = formatter.format(&line);
+                        let formatted = formatter.format(&line, pid);
                         println!("{}", formatted);
                     }
                 }
@@ -456,7 +474,8 @@ impl Orchestrator {
                         managed.is_ready = true;
                         managed.ready_probe_started = None;
                         just_became_ready.push(managed.def.name.clone());
-                        let msg = formatter.format_control(&managed.def.name, ControlEvent::Ready, "ready");
+                        let msg =
+                            formatter.format_control(&managed.def.name, ControlEvent::Ready, "ready", managed.pid());
                         println!("{}", msg);
                     } else if let Some(started) = managed.ready_probe_started {
                         let elapsed = started.elapsed();
@@ -466,6 +485,7 @@ impl Orchestrator {
                                 &managed.def.name,
                                 ControlEvent::TimedOut,
                                 "probe timed out after 30s (aborting)",
+                                managed.pid(),
                             );
                             println!("{}", msg);
                             shutting_down = true;
@@ -477,6 +497,7 @@ impl Orchestrator {
                                     &managed.def.name,
                                     ControlEvent::TimedOut,
                                     &format!("probe pending ({}s)", secs),
+                                    managed.pid(),
                                 );
                                 println!("{}", msg);
                             }
@@ -527,19 +548,20 @@ impl Orchestrator {
                 // Untrack from guard
                 guard.untrack(pgid);
 
-                // Drain remaining output
+                // Drain remaining output (process already exited, use pgid from exit event)
                 if let Some(ref output) = managed.output {
                     while let Some(line) = output.try_recv() {
-                        let formatted = formatter.format(&line);
+                        let formatted = formatter.format(&line, Some(pgid.as_raw()));
                         println!("{}", formatted);
                     }
                 }
 
                 // One-shot processes become ready on successful exit
+                let exited_pid = Some(pgid.as_raw());
                 let logged_ready = if managed.def.oneshot && !managed.is_ready && status == ProcessStatus::Success {
                     managed.is_ready = true;
                     processes_became_ready.push(name.clone());
-                    let msg = formatter.format_control(&name, ControlEvent::Ready, "exited successfully");
+                    let msg = formatter.format_control(&name, ControlEvent::Ready, "exited successfully", exited_pid);
                     println!("{}", msg);
                     true
                 } else {
@@ -548,8 +570,12 @@ impl Orchestrator {
 
                 // One-shot process failure aborts startup (but not if reloading - that's expected)
                 if managed.def.oneshot && status != ProcessStatus::Success && !shutting_down && !managed.reloading {
-                    let msg =
-                        formatter.format_control(&name, ControlEvent::Crashed, &format!("{} (aborting) ", status));
+                    let msg = formatter.format_control(
+                        &name,
+                        ControlEvent::Crashed,
+                        &format!("{} (aborting) ", status),
+                        exited_pid,
+                    );
                     println!("{}", msg);
                     shutting_down = true;
                 }
@@ -565,7 +591,7 @@ impl Orchestrator {
                     managed.reload_signal_sent = None;
                     // Reset failure count on intentional reload
                     managed.consecutive_failures = 0;
-                    let msg = formatter.format_control(&name, ControlEvent::Restarting, &path);
+                    let msg = formatter.format_control(&name, ControlEvent::Restarting, &path, exited_pid);
                     println!("{}", msg);
                     match self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
                         Ok(true) => processes_became_ready.push(name.clone()),
@@ -575,6 +601,7 @@ impl Orchestrator {
                                 &name,
                                 ControlEvent::Crashed,
                                 &format!("failed to restart: {}", e),
+                                None,
                             );
                             println!("{}", msg);
                         }
@@ -591,13 +618,18 @@ impl Orchestrator {
                     } else {
                         status.to_string()
                     };
-                    let msg = formatter.format_control(&name, ControlEvent::Crashed, &detail);
+                    let msg = formatter.format_control(&name, ControlEvent::Crashed, &detail, exited_pid);
                     println!("{}", msg);
 
                     let msg = if backoff.is_zero() {
-                        formatter.format_control(&name, ControlEvent::Restarting, "now")
+                        formatter.format_control(&name, ControlEvent::Restarting, "now", None)
                     } else {
-                        formatter.format_control(&name, ControlEvent::Restarting, &format!("in {}s", backoff.as_secs()))
+                        formatter.format_control(
+                            &name,
+                            ControlEvent::Restarting,
+                            &format!("in {}s", backoff.as_secs()),
+                            None,
+                        )
                     };
                     println!("{}", msg);
                 } else if !logged_ready && !shutting_down {
@@ -607,7 +639,7 @@ impl Orchestrator {
                     } else {
                         ControlEvent::Stopped
                     };
-                    let msg = formatter.format_control(&name, event, &status.to_string());
+                    let msg = formatter.format_control(&name, event, &status.to_string(), exited_pid);
                     println!("{}", msg);
                 }
             }
@@ -645,6 +677,7 @@ impl Orchestrator {
                             &name,
                             ControlEvent::Crashed,
                             &format!("failed to restart: {}", e),
+                            None,
                         );
                         println!("{}", msg);
                     }
@@ -665,7 +698,12 @@ impl Orchestrator {
                         && now.duration_since(signal_time) >= managed.def.options.shutdown
                         && let Some(ref proc) = managed.process
                     {
-                        let msg = formatter.format_control(&managed.def.name, ControlEvent::Stopped, "kill -9");
+                        let msg = formatter.format_control(
+                            &managed.def.name,
+                            ControlEvent::Stopped,
+                            "kill -9",
+                            Some(proc.pgid.as_raw()),
+                        );
                         println!("{}", msg);
                         let _ = proc.kill();
                         // Clear signal_sent to avoid repeated SIGKILL attempts
@@ -681,7 +719,12 @@ impl Orchestrator {
                     && now.duration_since(signal_time) >= managed.def.options.shutdown
                     && let Some(ref proc) = managed.process
                 {
-                    let msg = formatter.format_control(&managed.def.name, ControlEvent::Stopped, "kill -9");
+                    let msg = formatter.format_control(
+                        &managed.def.name,
+                        ControlEvent::Stopped,
+                        "kill -9",
+                        Some(proc.pgid.as_raw()),
+                    );
                     println!("{}", msg);
                     let _ = proc.kill();
                 }
@@ -720,6 +763,7 @@ impl Orchestrator {
                                 &name,
                                 ControlEvent::Restarting,
                                 &format!("kill -{}", signal_name_short(signal)),
+                                Some(proc.pgid.as_raw()),
                             );
                             println!("{}", msg);
                             let _ = proc.signal(signal);
@@ -734,13 +778,14 @@ impl Orchestrator {
                         managed.is_ready = false;
                     }
 
-                    let msg = formatter.format_control(&name, ControlEvent::Restarting, &path);
+                    let msg = formatter.format_control(&name, ControlEvent::Restarting, &path, None);
                     println!("{}", msg);
                     if let Err(e) = self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
                         let msg = formatter.format_control(
                             &name,
                             ControlEvent::Crashed,
                             &format!("failed to restart: {}", e),
+                            None,
                         );
                         println!("{}", msg);
                     }
@@ -791,11 +836,11 @@ impl Orchestrator {
             .get_mut(name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("process '{}' not found", name)))?;
 
-        let msg = formatter.format_control(name, ControlEvent::Starting, "starting");
+        let msg = formatter.format_control(name, ControlEvent::Starting, "starting", None);
         println!("{}", msg);
 
         if self.debug {
-            let msg = formatter.format_control(name, ControlEvent::Exec, &managed.def.command);
+            let msg = formatter.format_control(name, ControlEvent::Exec, &managed.def.command, None);
             println!("{}", msg);
         }
 
@@ -826,7 +871,7 @@ impl Orchestrator {
                 Some(dep) => format!("started (after {})", dep),
                 None => "started".to_string(),
             };
-            let msg = formatter.format_control(name, ControlEvent::Ready, &detail);
+            let msg = formatter.format_control(name, ControlEvent::Ready, &detail, managed.pid());
             println!("{}", msg);
         }
 
