@@ -260,7 +260,7 @@ impl Orchestrator {
                     dep.reloading = true;
                     dep.is_ready = false;
                     dep.reload_signal_sent = Some(Instant::now());
-                    dep.reload_path = Some(format!("{} reloaded", name));
+                    dep.reload_path = None; // Message already printed with reason
                     let signal = dep.def.options.signal;
                     if let Some(ref proc) = dep.process {
                         let msg = formatter.format_control(
