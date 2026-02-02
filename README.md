@@ -21,8 +21,11 @@ Proctor is a local development process manager that is compatible with and exten
 ## Example
 
 ```procfile
+# Long-running infrastructure with TCP readiness probe
+postgres ready=5432: docker run --rm -p 5432:5432 postgres:16
+
 # One-shot: run migrations before anything else (multiline command block)
-migrate! dir=./db:
+migrate! dir=./db after=postgres:
     echo "Running migrations..."
     psql -f schema.sql
     psql -f seeds.sql
@@ -30,16 +33,13 @@ migrate! dir=./db:
 # One-shot with file watching: re-run codegen when schema changes
 codegen! **/*.graphql debounce=1s: npm run codegen
 
-# Long-running infrastructure with TCP readiness probe
-postgres ready=5432: docker run --rm -p 5432:5432 postgres:16
-
 # Long-running with HTTP readiness probe, depends on postgres
 api **/*.go !**_test.go after=migrate,postgres ready=http:8080/health
     debounce=1s signal=INT shutdown=10s:
   LOG_LEVEL=debug go run ./cmd/api
 
-# Long-running in subdirectory, watches multiple file types
-frontend web/**/*.{ts,tsx,css,html} !web/dist/** dir=./web after=api: \
+# Long-running in subdirectory, watches multiple file types and restarts if codegen is re-run
+frontend web/**/*.{ts,tsx,css,html} !web/dist/** dir=./web after=api,codegen: \
   NODE_ENV=development npm run dev
 ```
 
