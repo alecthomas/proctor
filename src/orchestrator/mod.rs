@@ -586,13 +586,16 @@ impl Orchestrator {
 
                 // Handle reload completion (but not during shutdown)
                 if managed.reloading && !shutting_down {
-                    let path = managed.reload_path.take().unwrap_or_default();
+                    let path = managed.reload_path.take();
                     managed.reloading = false;
                     managed.reload_signal_sent = None;
                     // Reset failure count on intentional reload
                     managed.consecutive_failures = 0;
-                    let msg = formatter.format_control(&name, ControlEvent::Restarting, &path, exited_pid);
-                    println!("{}", msg);
+                    // Only print if we have a path - dependents already printed their message
+                    if let Some(path) = path {
+                        let msg = formatter.format_control(&name, ControlEvent::Restarting, &path, exited_pid);
+                        println!("{}", msg);
+                    }
                     match self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
                         Ok(true) => processes_became_ready.push(name.clone()),
                         Ok(false) => {}
