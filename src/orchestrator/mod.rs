@@ -546,8 +546,8 @@ impl Orchestrator {
                     false
                 };
 
-                // One-shot process failure aborts startup
-                if managed.def.oneshot && status != ProcessStatus::Success && !shutting_down {
+                // One-shot process failure aborts startup (but not if reloading - that's expected)
+                if managed.def.oneshot && status != ProcessStatus::Success && !shutting_down && !managed.reloading {
                     let msg =
                         formatter.format_control(&name, ControlEvent::Crashed, &format!("{} (aborting) ", status));
                     println!("{}", msg);
