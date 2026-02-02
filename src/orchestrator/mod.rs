@@ -224,6 +224,74 @@ impl Orchestrator {
         }
     }
 
+    /// Restart direct dependents of a process that just became ready after reload.
+    /// For running dependents: signal them to reload.
+    /// For completed one-shots: re-run them.
+    fn restart_dependents(
+        &self,
+        processes: &mut HashMap<String, ManagedProcess>,
+        graph: &DependencyGraph,
+        name: &str,
+        formatter: &OutputFormatter,
+        guard: &mut ShutdownGuard,
+    ) {
+        // Collect dependents to restart (to avoid borrow issues)
+        let dependents: Vec<(String, bool, bool)> = graph
+            .dependents_of(name)
+            .iter()
+            .filter_map(|dep_name| {
+                processes.get(*dep_name).map(|dep| {
+                    (
+                        dep_name.to_string(),
+                        dep.is_running(),
+                        dep.def.oneshot && dep.started && !dep.is_running(),
+                    )
+                })
+            })
+            .filter(|(_, running, completed_oneshot)| *running || *completed_oneshot)
+            .collect();
+
+        for (dep_name, is_running, is_completed_oneshot) in dependents {
+            if is_running {
+                // Signal running dependent to reload
+                if let Some(dep) = processes.get_mut(&dep_name)
+                    && !dep.reloading
+                {
+                    dep.reloading = true;
+                    dep.is_ready = false;
+                    dep.reload_signal_sent = Some(Instant::now());
+                    dep.reload_path = Some(format!("{} reloaded", name));
+                    let signal = dep.def.options.signal;
+                    if let Some(ref proc) = dep.process {
+                        let msg = formatter.format_control(
+                            &dep_name,
+                            ControlEvent::Restarting,
+                            &format!("kill -{} ({} reloaded)", signal_name_short(signal), name),
+                        );
+                        println!("{}", msg);
+                        let _ = proc.signal(signal);
+                    }
+                }
+            } else if is_completed_oneshot {
+                // Re-run completed one-shot
+                if let Some(dep) = processes.get_mut(&dep_name) {
+                    dep.is_ready = false;
+                    dep.consecutive_failures = 0;
+                }
+                let msg = formatter.format_control(&dep_name, ControlEvent::Restarting, &format!("{} reloaded", name));
+                println!("{}", msg);
+                if let Err(e) = self.spawn_managed(processes, &dep_name, formatter, guard, None) {
+                    let msg = formatter.format_control(
+                        &dep_name,
+                        ControlEvent::Crashed,
+                        &format!("failed to restart: {}", e),
+                    );
+                    println!("{}", msg);
+                }
+            }
+        }
+    }
+
     pub fn run(&self) -> io::Result<()> {
         if self.procfile.processes.is_empty() {
             return Ok(());
@@ -361,6 +429,7 @@ impl Orchestrator {
             // Check readiness probes (every 250ms per process)
             let probe_timeout = Duration::from_secs(30);
             let probe_interval = Duration::from_millis(250);
+            let mut just_became_ready: Vec<String> = Vec::new();
             for managed in processes.values_mut() {
                 if managed.is_ready || !managed.is_running() {
                     continue;
@@ -386,6 +455,7 @@ impl Orchestrator {
                     if readiness::is_ready(probe) {
                         managed.is_ready = true;
                         managed.ready_probe_started = None;
+                        just_became_ready.push(managed.def.name.clone());
                         let msg = formatter.format_control(&managed.def.name, ControlEvent::Ready, "ready");
                         println!("{}", msg);
                     } else if let Some(started) = managed.ready_probe_started {
@@ -412,6 +482,13 @@ impl Orchestrator {
                             }
                         }
                     }
+                }
+            }
+
+            // Restart dependents of processes that just became ready (reload cascade)
+            if !shutting_down {
+                for name in just_became_ready {
+                    self.restart_dependents(&mut processes, &graph, &name, &formatter, &mut guard);
                 }
             }
 
@@ -442,6 +519,7 @@ impl Orchestrator {
                 }
             }
 
+            let mut processes_became_ready: Vec<String> = Vec::new();
             for (name, exit_status, pgid) in exited {
                 let status = exit_status_to_process_status(&exit_status);
                 let managed = processes.get_mut(&name).unwrap();
@@ -460,6 +538,7 @@ impl Orchestrator {
                 // One-shot processes become ready on successful exit
                 let logged_ready = if managed.def.oneshot && !managed.is_ready && status == ProcessStatus::Success {
                     managed.is_ready = true;
+                    processes_became_ready.push(name.clone());
                     let msg = formatter.format_control(&name, ControlEvent::Ready, "exited successfully");
                     println!("{}", msg);
                     true
@@ -488,13 +567,17 @@ impl Orchestrator {
                     managed.consecutive_failures = 0;
                     let msg = formatter.format_control(&name, ControlEvent::Restarting, &path);
                     println!("{}", msg);
-                    if let Err(e) = self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
-                        let msg = formatter.format_control(
-                            &name,
-                            ControlEvent::Crashed,
-                            &format!("failed to restart: {}", e),
-                        );
-                        println!("{}", msg);
+                    match self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
+                        Ok(true) => processes_became_ready.push(name.clone()),
+                        Ok(false) => {}
+                        Err(e) => {
+                            let msg = formatter.format_control(
+                                &name,
+                                ControlEvent::Crashed,
+                                &format!("failed to restart: {}", e),
+                            );
+                            println!("{}", msg);
+                        }
                     }
                 } else if !shutting_down && !managed.def.oneshot {
                     // Crash recovery for long-running processes (any exit is unexpected)
@@ -529,6 +612,13 @@ impl Orchestrator {
                 }
             }
 
+            // Restart dependents of processes that just became ready (reload cascade)
+            if !shutting_down {
+                for name in processes_became_ready {
+                    self.restart_dependents(&mut processes, &graph, &name, &formatter, &mut guard);
+                }
+            }
+
             // Start any dependents whose dependencies became ready (e.g., one-shot exit)
             if !shutting_down {
                 self.start_ready_dependents(&mut processes, &graph, &formatter, &mut guard);
@@ -549,6 +639,7 @@ impl Orchestrator {
                     .collect();
 
                 for name in names_to_restart {
+                    // Crash recovery - don't cascade to dependents
                     if let Err(e) = self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
                         let msg = formatter.format_control(
                             &name,
@@ -602,35 +693,47 @@ impl Orchestrator {
                     debouncer.record_event(&event.process, &event.path);
                 }
 
-                // Collect one-shots to re-run (to avoid borrow conflicts)
+                // Collect processes to reload and one-shots to re-run (to avoid borrow conflicts)
+                let mut to_reload: Vec<(String, String)> = Vec::new();
                 let mut oneshots_to_rerun: Vec<(String, String)> = Vec::new();
 
                 for (name, path) in debouncer.get_ready() {
-                    if let Some(managed) = processes.get_mut(&name) {
+                    if let Some(managed) = processes.get(&name) {
                         if managed.is_running() && !managed.reloading {
-                            // Running process: signal and restart
-                            managed.reloading = true;
-                            managed.reload_signal_sent = Some(Instant::now());
-                            managed.reload_path = Some(path);
-                            let signal = managed.def.options.signal;
-                            if let Some(ref proc) = managed.process {
-                                let msg = formatter.format_control(
-                                    &name,
-                                    ControlEvent::Restarting,
-                                    &format!("kill -{}", signal_name_short(signal)),
-                                );
-                                println!("{}", msg);
-                                let _ = proc.signal(signal);
-                            }
+                            to_reload.push((name.clone(), path));
                         } else if !managed.is_running() && managed.def.oneshot && managed.started {
-                            // Completed one-shot: queue for re-run
                             oneshots_to_rerun.push((name.clone(), path));
                         }
                     }
                 }
 
-                // Re-run completed one-shots
+                // Process reloads (dependents will be marked when this process becomes ready again)
+                for (name, path) in to_reload {
+                    if let Some(managed) = processes.get_mut(&name) {
+                        managed.reloading = true;
+                        managed.is_ready = false;
+                        managed.reload_signal_sent = Some(Instant::now());
+                        managed.reload_path = Some(path);
+                        let signal = managed.def.options.signal;
+                        if let Some(ref proc) = managed.process {
+                            let msg = formatter.format_control(
+                                &name,
+                                ControlEvent::Restarting,
+                                &format!("kill -{}", signal_name_short(signal)),
+                            );
+                            println!("{}", msg);
+                            let _ = proc.signal(signal);
+                        }
+                    }
+                }
+
+                // Re-run completed one-shots (dependents will be marked when it becomes ready again)
                 for (name, path) in oneshots_to_rerun {
+                    // Mark the one-shot as not ready while it re-runs
+                    if let Some(managed) = processes.get_mut(&name) {
+                        managed.is_ready = false;
+                    }
+
                     let msg = formatter.format_control(&name, ControlEvent::Restarting, &path);
                     println!("{}", msg);
                     if let Err(e) = self.spawn_managed(&mut processes, &name, &formatter, &mut guard, None) {
@@ -674,6 +777,8 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Spawns a managed process. Returns Ok(true) if the process became ready immediately
+    /// (long-running without probe), Ok(false) otherwise.
     fn spawn_managed(
         &self,
         processes: &mut HashMap<String, ManagedProcess>,
@@ -681,7 +786,7 @@ impl Orchestrator {
         formatter: &OutputFormatter,
         guard: &mut ShutdownGuard,
         after: Option<&str>,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         let managed = processes
             .get_mut(name)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("process '{}' not found", name)))?;
@@ -722,7 +827,7 @@ impl Orchestrator {
             println!("{}", msg);
         }
 
-        Ok(())
+        Ok(is_ready)
     }
 }
 

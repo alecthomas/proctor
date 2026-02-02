@@ -180,6 +180,7 @@ When a file change matches a process's glob patterns (after exclusions):
 2. For running processes: send the configured signal (default `SIGTERM`) to the process group, wait up to `shutdown` duration, then `SIGKILL` if needed.
 3. For completed one-shot processes: start immediately.
 4. Restart the process.
+5. All downstream dependents (processes with `after=` pointing to the reloaded process, transitively) are also restarted, in dependency order, after the upstream process becomes ready.
 
 ### Restart on crash
 
