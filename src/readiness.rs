@@ -1,4 +1,5 @@
 use crate::parser::ReadyProbe;
+use std::collections::HashMap;
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
@@ -15,11 +16,11 @@ pub enum ReadinessResult {
 /// Polls a readiness probe until it succeeds or times out.
 /// Returns `Ready` if the probe succeeds within the timeout, `TimedOut` otherwise.
 #[allow(dead_code)]
-pub fn wait_for_ready(probe: &ReadyProbe) -> ReadinessResult {
+pub fn wait_for_ready(probe: &ReadyProbe, env: &HashMap<String, String>) -> ReadinessResult {
     let start = Instant::now();
 
     while start.elapsed() < PROBE_TIMEOUT {
-        if check_probe(probe) {
+        if check_probe(probe, env) {
             return ReadinessResult::Ready;
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -29,7 +30,7 @@ pub fn wait_for_ready(probe: &ReadyProbe) -> ReadinessResult {
 }
 
 /// Checks a probe once, returning true if ready.
-fn check_probe(probe: &ReadyProbe) -> bool {
+fn check_probe(probe: &ReadyProbe, env: &HashMap<String, String>) -> bool {
     match probe {
         ReadyProbe::Tcp { port } => check_tcp(*port),
         ReadyProbe::Http {
@@ -37,7 +38,7 @@ fn check_probe(probe: &ReadyProbe) -> bool {
             path,
             expected_status,
         } => check_http(*port, path, *expected_status),
-        ReadyProbe::Exec { command } => check_exec(command),
+        ReadyProbe::Exec { command } => check_exec(command, env),
     }
 }
 
@@ -106,12 +107,16 @@ fn check_http_addr(addr: &str, port: u16, path: &str, expected_status: Option<u1
 }
 
 /// Executes a command via the shell and returns true if it exits with code 0.
-fn check_exec(command: &str) -> bool {
+fn check_exec(command: &str, env: &HashMap<String, String>) -> bool {
     use std::process::Command;
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
 
-    match Command::new(&shell).arg("-c").arg(command).output() {
+    let mut cmd = Command::new(&shell);
+    cmd.arg("-c").arg(command);
+    cmd.envs(env);
+
+    match cmd.output() {
         Ok(output) => output.status.success(),
         Err(_) => false,
     }
@@ -129,8 +134,8 @@ fn parse_http_status(response: &str) -> Option<u16> {
 
 /// Non-blocking check if a probe is ready (single attempt).
 #[allow(dead_code)]
-pub fn is_ready(probe: &ReadyProbe) -> bool {
-    check_probe(probe)
+pub fn is_ready(probe: &ReadyProbe, env: &HashMap<String, String>) -> bool {
+    check_probe(probe, env)
 }
 
 #[cfg(test)]
@@ -234,7 +239,7 @@ mod tests {
         });
 
         let probe = ReadyProbe::Tcp { port };
-        let result = wait_for_ready(&probe);
+        let result = wait_for_ready(&probe, &HashMap::new());
         assert_eq!(result, ReadinessResult::Ready);
 
         handle.join().unwrap();
@@ -332,21 +337,36 @@ mod tests {
 
     #[test]
     fn test_exec_probe_success() {
-        assert!(check_exec("true"));
+        assert!(check_exec("true", &HashMap::new()));
     }
 
     #[test]
     fn test_exec_probe_failure() {
-        assert!(!check_exec("false"));
+        assert!(!check_exec("false", &HashMap::new()));
     }
 
     #[test]
     fn test_exec_probe_with_command() {
-        assert!(check_exec("test 1 -eq 1"));
+        assert!(check_exec("test 1 -eq 1", &HashMap::new()));
     }
 
     #[test]
     fn test_exec_probe_with_failing_command() {
-        assert!(!check_exec("test 1 -eq 2"));
+        assert!(!check_exec("test 1 -eq 2", &HashMap::new()));
+    }
+
+    #[test]
+    fn test_exec_probe_with_env() {
+        let mut env = HashMap::new();
+        env.insert("PROBE_TEST_VAR".to_string(), "expected_value".to_string());
+        assert!(check_exec("test \"$PROBE_TEST_VAR\" = expected_value", &env));
+    }
+
+    #[test]
+    fn test_exec_probe_without_env_fails() {
+        assert!(!check_exec(
+            "test \"$PROBE_TEST_MISSING\" = expected_value",
+            &HashMap::new()
+        ));
     }
 }

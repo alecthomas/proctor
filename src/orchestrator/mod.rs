@@ -497,7 +497,7 @@ impl Orchestrator {
                         println!("{}", msg);
                     }
 
-                    if readiness::is_ready(probe) {
+                    if readiness::is_ready(probe, &self.global_env) {
                         managed.is_ready = true;
                         managed.ready_probe_started = None;
                         just_became_ready.push(managed.def.name.clone());

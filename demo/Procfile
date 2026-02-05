@@ -1,10 +1,12 @@
 CGO_ENABLED=0
+PGDB="postgres://demo:demo@localhost:5432/demo"
+
 
 # PostgreSQL via docker compose with exec ready probe
-postgres ready=exec:"usql postgres://demo:demo@localhost:5432/demo -c 'select 1'": docker compose --progress plain up --quiet-pull postgres
+postgres ready=exec:"usql $PGDB -c 'select 1'": docker compose --progress plain up --quiet-pull postgres
 
 # One-shot: apply schema after postgres is ready
-migrate! *.sql after=postgres: usql postgres://demo:demo@localhost:5432/demo -f schema.sql
+migrate! *.sql after=postgres: usql $PGDB -f schema.sql
 
 # Go server with hot reload and HTTP readiness probe
 api go.mod *.go after=migrate ready=http:8080/health=200 debounce=500ms: go run .
