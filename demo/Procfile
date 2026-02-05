@@ -6,3 +6,10 @@ migrate! *.sql after=postgres: usql postgres://demo:demo@localhost:5432/demo -f 
 
 # Go server with hot reload and HTTP readiness probe
 api go.mod *.go after=migrate ready=http:8080/health=200 debounce=500ms: go run .
+
+# Seed some data
+seed! after=api:
+    # Curl without progress
+    curl -s --json '{"name": "Alice", "email": "alice@example.com"}' http://localhost:8080/users
+    curl -s --json '{"name": "Bob", "email": "bob@example.com"}' http://localhost:8080/users
+    curl -s --json '{"name": "Charlie", "email": "charlie@example.com"}' http://localhost:8080/users

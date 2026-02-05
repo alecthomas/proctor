@@ -4,6 +4,8 @@
 
 Proctor is a local development process manager that is compatible with and extends the Procfile format. It aims to replace ad-hoc combinations of `foreman`, `watchexec`, and shell scripts with a single declarative file.
 
+![Proctor demo](demo/demo.svg)
+
 **Features:**
 
 - Procfile-compatible syntax with shell-style quoting and line continuation

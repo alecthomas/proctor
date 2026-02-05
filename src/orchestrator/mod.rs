@@ -568,18 +568,6 @@ impl Orchestrator {
                     false
                 };
 
-                // One-shot process failure aborts startup (but not if reloading - that's expected)
-                if managed.def.oneshot && status != ProcessStatus::Success && !shutting_down && !managed.reloading {
-                    let msg = formatter.format_control(
-                        &name,
-                        ControlEvent::Crashed,
-                        &format!("{} (aborting) ", status),
-                        exited_pid,
-                    );
-                    println!("{}", msg);
-                    shutting_down = true;
-                }
-
                 // Clean up
                 managed.process = None;
                 managed.output = None;
@@ -609,6 +597,40 @@ impl Orchestrator {
                             println!("{}", msg);
                         }
                     }
+                } else if !shutting_down && (managed.def.oneshot && status != ProcessStatus::Success) {
+                    // One-shot process failure - retry with backoff, abort if max backoff exceeded
+                    managed.consecutive_failures += 1;
+                    let backoff = managed.calculate_backoff();
+
+                    // Max backoff (32s) is reached at 6 failures. If we've exceeded that, abort.
+                    if managed.consecutive_failures > 6 {
+                        let msg = formatter.format_control(
+                            &name,
+                            ControlEvent::Crashed,
+                            &format!("{} (aborting after {} failures)", status, managed.consecutive_failures),
+                            exited_pid,
+                        );
+                        println!("{}", msg);
+                        shutting_down = true;
+                    } else {
+                        let restart_time = Instant::now() + backoff;
+                        managed.scheduled_restart = Some(restart_time);
+
+                        let msg = formatter.format_control(&name, ControlEvent::Crashed, &status.to_string(), exited_pid);
+                        println!("{}", msg);
+
+                        let msg = if backoff.is_zero() {
+                            formatter.format_control(&name, ControlEvent::Restarting, "now", None)
+                        } else {
+                            formatter.format_control(
+                                &name,
+                                ControlEvent::Restarting,
+                                &format!("in {}s", backoff.as_secs()),
+                                None,
+                            )
+                        };
+                        println!("{}", msg);
+                    }
                 } else if !shutting_down && !managed.def.oneshot {
                     // Crash recovery for long-running processes (any exit is unexpected)
                     managed.consecutive_failures += 1;
@@ -617,7 +639,7 @@ impl Orchestrator {
                     managed.scheduled_restart = Some(restart_time);
 
                     let detail = if status == ProcessStatus::Success {
-                        format!("{} (unexpectedly)", status)
+                        format!("{} (unexpectedly, should this be a one-shot?)", status)
                     } else {
                         status.to_string()
                     };

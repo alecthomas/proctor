@@ -11,5 +11,6 @@ CREATE TABLE IF NOT EXISTS addresses (
     street TEXT NOT NULL,
     city TEXT NOT NULL,
     country TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (user_id, street, city, country)
 );

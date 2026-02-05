@@ -84,7 +84,9 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := db.QueryRow(
-		"INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, created_at",
+		`INSERT INTO users (name, email) VALUES ($1, $2)
+		 ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+		 RETURNING id, created_at`,
 		u.Name, u.Email,
 	).Scan(&u.ID, &u.CreatedAt)
 	if err != nil {
@@ -143,7 +145,9 @@ func createAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := db.QueryRow(
-		"INSERT INTO addresses (user_id, street, city, country) VALUES ($1, $2, $3, $4) RETURNING id, created_at",
+		`INSERT INTO addresses (user_id, street, city, country) VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (user_id, street, city, country) DO UPDATE SET user_id = EXCLUDED.user_id
+		 RETURNING id, created_at`,
 		a.UserID, a.Street, a.City, a.Country,
 	).Scan(&a.ID, &a.CreatedAt)
 	if err != nil {
