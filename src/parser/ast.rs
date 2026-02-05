@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Procfile {
+    pub global_env: HashMap<String, String>,
     pub processes: Vec<ProcessDef>,
 }
 

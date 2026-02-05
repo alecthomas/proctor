@@ -48,6 +48,7 @@ impl Drop for TerminalGuard {
 pub struct Orchestrator {
     procfile: Procfile,
     base_dir: std::path::PathBuf,
+    global_env: HashMap<String, String>,
     debug: bool,
     timestamp: bool,
 }
@@ -186,9 +187,11 @@ impl std::fmt::Display for ProcessStatus {
 
 impl Orchestrator {
     pub fn new(procfile: Procfile, base_dir: std::path::PathBuf, debug: bool, timestamp: bool) -> Self {
+        let global_env = procfile.global_env.clone();
         Self {
             procfile,
             base_dir,
+            global_env,
             debug,
             timestamp,
         }
@@ -326,6 +329,17 @@ impl Orchestrator {
 
         let process_names: Vec<&str> = self.procfile.processes.iter().map(|p| p.name.as_str()).collect();
         let formatter = OutputFormatter::new(&process_names, self.timestamp, self.debug);
+
+        // Print global env vars in debug mode
+        if self.debug && !self.global_env.is_empty() {
+            let mut keys: Vec<_> = self.global_env.keys().collect();
+            keys.sort();
+            for key in keys {
+                let value = &self.global_env[key];
+                let msg = formatter.format_control("proctor", ControlEvent::Exec, &format!("{}={}", key, value), None);
+                println!("{}", msg);
+            }
+        }
 
         let mut processes: HashMap<String, ManagedProcess> = HashMap::new();
 
@@ -471,16 +485,16 @@ impl Orchestrator {
                     managed.last_probe_check = Some(Instant::now());
 
                     // Print exec probe command in debug mode each time it runs
-                    if self.debug {
-                        if let ReadyProbe::Exec { command } = probe {
-                            let msg = formatter.format_control(
-                                &managed.def.name,
-                                ControlEvent::Exec,
-                                &format!("probe: {}", command),
-                                managed.pid(),
-                            );
-                            println!("{}", msg);
-                        }
+                    if self.debug
+                        && let ReadyProbe::Exec { command } = probe
+                    {
+                        let msg = formatter.format_control(
+                            &managed.def.name,
+                            ControlEvent::Exec,
+                            &format!("probe: {}", command),
+                            managed.pid(),
+                        );
+                        println!("{}", msg);
                     }
 
                     if readiness::is_ready(probe) {
@@ -883,7 +897,12 @@ impl Orchestrator {
             println!("{}", msg);
         }
 
-        let mut running = spawn_process(&managed.def, &self.base_dir, None)?;
+        let extra_env = if self.global_env.is_empty() {
+            None
+        } else {
+            Some(&self.global_env)
+        };
+        let mut running = spawn_process(&managed.def, &self.base_dir, extra_env)?;
         let output = running
             .take_output()
             .ok_or_else(|| io::Error::other("failed to capture process output"))?;
@@ -953,6 +972,7 @@ mod tests {
 
     fn simple_procfile(processes: Vec<(&str, &str)>) -> Procfile {
         Procfile {
+            global_env: HashMap::new(),
             processes: processes
                 .into_iter()
                 .map(|(name, cmd)| ProcessDef {
@@ -982,7 +1002,10 @@ mod tests {
 
     #[test]
     fn test_run_empty_procfile() {
-        let procfile = Procfile { processes: vec![] };
+        let procfile = Procfile {
+            global_env: HashMap::new(),
+            processes: vec![],
+        };
         let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap(), false, false);
         orchestrator.run().unwrap();
     }

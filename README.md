@@ -16,7 +16,8 @@ Proctor is a local development process manager that is compatible with and exten
 - Readiness probes (TCP port, HTTP endpoint, or shell command)
 - Automatic restart on crash with exponential backoff
 - Graceful shutdown in reverse dependency order
-- Per-process environment variables and working directory
+- Global and per-process environment variables
+- Per-process working directory
 - Coloured, aligned log output with optional timestamps
 - Multiline command blocks
 
@@ -76,6 +77,28 @@ Each line defines a process. The colon (`:`) separates the **declaration** (left
 ### Comments and blank lines
 
 Lines starting with `#` are comments. Blank lines are ignored.
+
+### Global environment variables
+
+Lines matching `KEY=VALUE` (with no colon) define global environment variables that are set for all processes:
+
+```procfile
+CGO_ENABLED=0
+NODE_ENV=development
+
+api: go run ./cmd/api
+frontend: npm run dev
+```
+
+Values can be bare, single-quoted (literal), or double-quoted (with escape sequences like `\n`, `\t`):
+
+```procfile
+SIMPLE=value
+SPACES='hello world'
+NEWLINE="line1\nline2"
+```
+
+Global variables are merged with the inherited environment. Inline `ENV=value` in the command takes precedence over global variables.
 
 ### Line continuation
 

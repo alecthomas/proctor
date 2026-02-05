@@ -5,6 +5,7 @@ mod tokenizer;
 
 pub use ast::*;
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,89 +27,27 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 pub fn parse(input: &str) -> Result<Procfile, ParseError> {
+    use tokenizer::{ProcfileItem, parse_procfile};
+
+    let mut input_str = input;
+    let items = parse_procfile(&mut input_str).map_err(|_| ParseError {
+        line: 0,
+        message: "failed to parse procfile".to_string(),
+    })?;
+
+    let mut global_env = HashMap::new();
     let mut processes = Vec::new();
-    let mut lines_iter = input.lines().enumerate().peekable();
 
-    while let Some((line_num, line)) = lines_iter.next() {
-        let line_num = line_num + 1; // 1-indexed
-
-        // Handle line continuation with backslash
-        let mut full_line = line.to_string();
-        while full_line.ends_with('\\') {
-            full_line.pop();
-            if let Some((_, next_line)) = lines_iter.next() {
-                let trimmed = next_line.trim_start();
-                if !full_line.ends_with(' ') && !trimmed.is_empty() {
-                    full_line.push(' ');
-                }
-                full_line.push_str(trimmed);
+    for item in items {
+        match item {
+            ProcfileItem::GlobalEnv { key, value } => {
+                global_env.insert(key, value);
+            }
+            ProcfileItem::Process(proc_line) => {
+                let process = parse_declaration(&proc_line.declaration_tokens, &proc_line.command)?;
+                processes.push(process);
             }
         }
-
-        let trimmed = full_line.trim();
-
-        // Skip blank lines and comments
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        // Handle multiline command block (colon at end of line)
-        let (line_to_parse, multiline_command) = if trimmed.ends_with(':') {
-            // Collect all subsequent indented lines as the command
-            let mut command_lines = Vec::new();
-            while let Some((_, next_line)) = lines_iter.peek() {
-                // Check if line is indented (starts with whitespace)
-                if next_line.starts_with(' ') || next_line.starts_with('\t') {
-                    let (_, next_line) = lines_iter.next().unwrap();
-                    command_lines.push(next_line.to_string());
-                } else if next_line.trim().is_empty() {
-                    // Skip blank lines within the block
-                    lines_iter.next();
-                } else {
-                    break;
-                }
-            }
-            if command_lines.is_empty() {
-                (trimmed.to_string(), None)
-            } else {
-                // Find minimum indentation
-                let min_indent = command_lines
-                    .iter()
-                    .filter(|l| !l.trim().is_empty())
-                    .map(|l| l.len() - l.trim_start().len())
-                    .min()
-                    .unwrap_or(0);
-                // Strip common indentation and join with newlines
-                let command: String = command_lines
-                    .iter()
-                    .map(|l| {
-                        if l.trim().is_empty() {
-                            ""
-                        } else if l.len() > min_indent {
-                            &l[min_indent..]
-                        } else {
-                            l.trim_start()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                (trimmed.to_string(), Some(command))
-            }
-        } else {
-            (trimmed.to_string(), None)
-        };
-
-        let allow_empty = multiline_command.is_some();
-        let mut process = parse_line(&line_to_parse, line_num, allow_empty)?;
-        if let Some(cmd) = multiline_command {
-            process.command = cmd;
-        } else if process.command.is_empty() {
-            return Err(ParseError {
-                line: line_num,
-                message: "missing command".to_string(),
-            });
-        }
-        processes.push(process);
     }
 
     // Check for duplicate process names
@@ -125,33 +64,16 @@ pub fn parse(input: &str) -> Result<Procfile, ParseError> {
     // Check for circular dependencies
     check_circular_deps(&processes)?;
 
-    Ok(Procfile { processes })
+    Ok(Procfile { global_env, processes })
 }
 
-fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<ProcessDef, ParseError> {
-    let mut input = line;
-
-    let decl_tokens = tokenizer::tokenize_before_colon(&mut input).map_err(|e| ParseError {
-        line: line_num,
-        message: format!("tokenization error: {}", e),
-    })?;
-
+fn parse_declaration(decl_tokens: &[String], command: &str) -> Result<ProcessDef, ParseError> {
     if decl_tokens.is_empty() {
         return Err(ParseError {
-            line: line_num,
+            line: 0,
             message: "missing process name".to_string(),
         });
     }
-
-    tokenizer::skip_colon(&mut input).map_err(|_| ParseError {
-        line: line_num,
-        message: "missing colon separator".to_string(),
-    })?;
-
-    let command_part = tokenizer::rest_of_line(&mut input).map_err(|e| ParseError {
-        line: line_num,
-        message: format!("failed to parse command: {}", e),
-    })?;
 
     // Parse declaration tokens - check for oneshot suffix (name!)
     let raw_name = &decl_tokens[0];
@@ -163,7 +85,7 @@ fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<
 
     if !is_valid_name(&name) {
         return Err(ParseError {
-            line: line_num,
+            line: 0,
             message: format!("invalid process name: {}", name),
         });
     }
@@ -187,7 +109,7 @@ fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<
                 value.push_str(&decl_tokens[i + 1]);
                 i += 2;
             }
-            apply_option(&mut options, key, &value, line_num)?;
+            apply_option(&mut options, key, &value, 0)?;
         } else {
             // Any non-option token is treated as a watch pattern (glob or bare file path)
             let (pattern, exclude) = if let Some(p) = token.strip_prefix('!') {
@@ -200,9 +122,9 @@ fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<
         }
     }
 
-    if command_part.is_empty() && !allow_empty_command {
+    if command.is_empty() {
         return Err(ParseError {
-            line: line_num,
+            line: 0,
             message: "missing command".to_string(),
         });
     }
@@ -210,7 +132,7 @@ fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<
     // Validate option combinations
     if oneshot && options.ready.is_some() {
         return Err(ParseError {
-            line: line_num,
+            line: 0,
             message: "one-shot processes cannot have a ready probe (they become ready on exit)".to_string(),
         });
     }
@@ -219,7 +141,7 @@ fn parse_line(line: &str, line_num: usize, allow_empty_command: bool) -> Result<
         name,
         watch_patterns,
         options,
-        command: command_part,
+        command: command.to_string(),
         oneshot,
     })
 }
@@ -676,5 +598,74 @@ api **/*.go !**_test.go after=postgres debounce=500ms: CGO_ENABLED=0 go run ./cm
         assert_eq!(api.options.after, vec!["postgres"]);
         assert_eq!(api.options.debounce, Duration::from_millis(500));
         assert_eq!(api.command, "CGO_ENABLED=0 go run ./cmd/api");
+    }
+
+    #[test]
+    fn test_global_env_bare() {
+        let input = "MY_VAR=hello\napi: echo $MY_VAR";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.global_env.get("MY_VAR"), Some(&"hello".to_string()));
+        assert_eq!(procfile.processes.len(), 1);
+    }
+
+    #[test]
+    fn test_global_env_single_quoted() {
+        let input = "MY_VAR='hello world'\napi: echo $MY_VAR";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.global_env.get("MY_VAR"), Some(&"hello world".to_string()));
+    }
+
+    #[test]
+    fn test_global_env_double_quoted() {
+        let input = "MY_VAR=\"hello world\"\napi: echo $MY_VAR";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.global_env.get("MY_VAR"), Some(&"hello world".to_string()));
+    }
+
+    #[test]
+    fn test_global_env_double_quoted_escapes() {
+        let input = "MY_VAR=\"hello\\nworld\"\napi: echo $MY_VAR";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.global_env.get("MY_VAR"), Some(&"hello\nworld".to_string()));
+    }
+
+    #[test]
+    fn test_global_env_multiple() {
+        let input = "FOO=bar\nBAZ=qux\napi: cmd";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.global_env.get("FOO"), Some(&"bar".to_string()));
+        assert_eq!(procfile.global_env.get("BAZ"), Some(&"qux".to_string()));
+    }
+
+    #[test]
+    fn test_global_env_with_underscore() {
+        let input = "_MY_VAR=value\napi: cmd";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.global_env.get("_MY_VAR"), Some(&"value".to_string()));
+    }
+
+    #[test]
+    fn test_global_env_mixed_with_processes() {
+        let input = r#"
+CGO_ENABLED=0
+NODE_ENV=development
+
+api: go run ./cmd/api
+frontend: npm run dev
+"#;
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.global_env.get("CGO_ENABLED"), Some(&"0".to_string()));
+        assert_eq!(procfile.global_env.get("NODE_ENV"), Some(&"development".to_string()));
+        assert_eq!(procfile.processes.len(), 2);
+    }
+
+    #[test]
+    fn test_global_env_not_confused_with_process() {
+        // Lines with colons are processes, not env vars
+        let input = "api: MY_VAR=value cmd";
+        let procfile = parse(input).unwrap();
+        assert!(procfile.global_env.is_empty());
+        assert_eq!(procfile.processes.len(), 1);
+        assert_eq!(procfile.processes[0].command, "MY_VAR=value cmd");
     }
 }

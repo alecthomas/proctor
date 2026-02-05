@@ -1,3 +1,5 @@
+CGO_ENABLED=0
+
 # PostgreSQL via docker compose with exec ready probe
 postgres ready=exec:"usql postgres://demo:demo@localhost:5432/demo -c 'select 1'": docker compose --progress plain up --quiet-pull postgres
 
