@@ -1,0 +1,8 @@
+# PostgreSQL via docker compose with TCP ready probe
+postgres ready=5432: docker compose --progress plain up --quiet-pull postgres
+
+# One-shot: apply schema after postgres is ready
+migrate! *.sql after=postgres: usql postgres://demo:demo@localhost:5432/demo -f schema.sql
+
+# Go server with hot reload and HTTP readiness probe
+api go.mod *.go after=migrate ready=http:8080/health=200 debounce=500ms: go run .
