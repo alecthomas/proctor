@@ -37,6 +37,7 @@ fn check_probe(probe: &ReadyProbe) -> bool {
             path,
             expected_status,
         } => check_http(*port, path, *expected_status),
+        ReadyProbe::Exec { command } => check_exec(command),
     }
 }
 
@@ -101,6 +102,18 @@ fn check_http_addr(addr: &str, port: u16, path: &str, expected_status: Option<u1
         (Some(code), Some(expected)) => code == expected,
         (Some(code), None) => code < 500,
         (None, _) => false,
+    }
+}
+
+/// Executes a command via the shell and returns true if it exits with code 0.
+fn check_exec(command: &str) -> bool {
+    use std::process::Command;
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+
+    match Command::new(&shell).arg("-c").arg(command).output() {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
     }
 }
 
@@ -315,5 +328,25 @@ mod tests {
         // With exact status, even 5xx can match if explicitly expected
         assert!(check_http(port, "/", Some(503)));
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_exec_probe_success() {
+        assert!(check_exec("true"));
+    }
+
+    #[test]
+    fn test_exec_probe_failure() {
+        assert!(!check_exec("false"));
+    }
+
+    #[test]
+    fn test_exec_probe_with_command() {
+        assert!(check_exec("test 1 -eq 1"));
+    }
+
+    #[test]
+    fn test_exec_probe_with_failing_command() {
+        assert!(!check_exec("test 1 -eq 2"));
     }
 }

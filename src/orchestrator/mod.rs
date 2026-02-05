@@ -3,7 +3,7 @@ pub mod runner;
 mod watcher;
 
 use crate::output::{ControlEvent, OutputFormatter};
-use crate::parser::{ProcessDef, Procfile, Signal};
+use crate::parser::{ProcessDef, Procfile, ReadyProbe, Signal};
 use crate::readiness;
 use graph::DependencyGraph;
 use nix::sys::termios::{LocalFlags, SetArg, Termios, tcgetattr, tcsetattr};
@@ -470,6 +470,19 @@ impl Orchestrator {
                     }
                     managed.last_probe_check = Some(Instant::now());
 
+                    // Print exec probe command in debug mode each time it runs
+                    if self.debug {
+                        if let ReadyProbe::Exec { command } = probe {
+                            let msg = formatter.format_control(
+                                &managed.def.name,
+                                ControlEvent::Exec,
+                                &format!("probe: {}", command),
+                                managed.pid(),
+                            );
+                            println!("{}", msg);
+                        }
+                    }
+
                     if readiness::is_ready(probe) {
                         managed.is_ready = true;
                         managed.ready_probe_started = None;
@@ -561,7 +574,7 @@ impl Orchestrator {
                 let logged_ready = if managed.def.oneshot && !managed.is_ready && status == ProcessStatus::Success {
                     managed.is_ready = true;
                     processes_became_ready.push(name.clone());
-                    let msg = formatter.format_control(&name, ControlEvent::Ready, "exited successfully", exited_pid);
+                    let msg = formatter.format_control(&name, ControlEvent::Ready, "exit 0", exited_pid);
                     println!("{}", msg);
                     true
                 } else {
@@ -616,7 +629,8 @@ impl Orchestrator {
                         let restart_time = Instant::now() + backoff;
                         managed.scheduled_restart = Some(restart_time);
 
-                        let msg = formatter.format_control(&name, ControlEvent::Crashed, &status.to_string(), exited_pid);
+                        let msg =
+                            formatter.format_control(&name, ControlEvent::Crashed, &status.to_string(), exited_pid);
                         println!("{}", msg);
 
                         let msg = if backoff.is_zero() {

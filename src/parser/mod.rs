@@ -290,6 +290,18 @@ fn parse_ready_probe(value: &str, line_num: usize) -> Result<ReadyProbe, ParseEr
             path,
             expected_status,
         })
+    } else if let Some(rest) = value.strip_prefix("exec:") {
+        // Parse format: exec:<command> where command may be quoted
+        let command = rest.trim();
+        if command.is_empty() {
+            return Err(ParseError {
+                line: line_num,
+                message: "exec probe requires a command".to_string(),
+            });
+        }
+        Ok(ReadyProbe::Exec {
+            command: command.to_string(),
+        })
     } else {
         // Default: bare port number means TCP probe
         let port: u16 = value.parse().map_err(|_| ParseError {
@@ -507,6 +519,37 @@ mod tests {
                 expected_status: Some(201),
             })
         );
+    }
+
+    #[test]
+    fn test_ready_probe_exec() {
+        let input = r#"api ready=exec:"pg_isready -h localhost": ./api"#;
+        let procfile = parse(input).unwrap();
+        assert_eq!(
+            procfile.processes[0].options.ready,
+            Some(ReadyProbe::Exec {
+                command: "pg_isready -h localhost".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_ready_probe_exec_single_quoted() {
+        let input = "api ready=exec:'test -f /tmp/ready': ./api";
+        let procfile = parse(input).unwrap();
+        assert_eq!(
+            procfile.processes[0].options.ready,
+            Some(ReadyProbe::Exec {
+                command: "test -f /tmp/ready".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_ready_probe_exec_empty_error() {
+        let input = "api ready=exec:: ./api";
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("exec probe requires a command"));
     }
 
     #[test]

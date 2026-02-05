@@ -55,6 +55,9 @@ pub enum ReadyProbe {
         path: String,
         expected_status: Option<u16>,
     },
+    Exec {
+        command: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -1,5 +1,5 @@
-# PostgreSQL via docker compose with TCP ready probe
-postgres ready=5432: docker compose --progress plain up --quiet-pull postgres
+# PostgreSQL via docker compose with exec ready probe
+postgres ready=exec:"usql postgres://demo:demo@localhost:5432/demo -c 'select 1'": docker compose --progress plain up --quiet-pull postgres
 
 # One-shot: apply schema after postgres is ready
 migrate! *.sql after=postgres: usql postgres://demo:demo@localhost:5432/demo -f schema.sql
@@ -13,3 +13,4 @@ seed! after=api:
     curl -s --json '{"name": "Alice", "email": "alice@example.com"}' http://localhost:8080/users
     curl -s --json '{"name": "Bob", "email": "bob@example.com"}' http://localhost:8080/users
     curl -s --json '{"name": "Charlie", "email": "charlie@example.com"}' http://localhost:8080/users
+    curl -s http://localhost:8080/users | jq

@@ -13,7 +13,7 @@ Proctor is a local development process manager that is compatible with and exten
 - File watching with glob patterns and exclusions
 - Hot reload on file changes with configurable debounce and signal
 - Process dependencies with `after=` for ordered startup
-- Readiness probes (TCP port or HTTP endpoint)
+- Readiness probes (TCP port, HTTP endpoint, or shell command)
 - Automatic restart on crash with exponential backoff
 - Graceful shutdown in reverse dependency order
 - Per-process environment variables and working directory
@@ -210,6 +210,7 @@ The `ready` option defines how proctor determines a process is ready (for `after
 |-----------------------------------|------------------------------------------------------------------------|
 | `<port>`                          | Poll `localhost:<port>` until a TCP connection succeeds                |
 | `http:<port>[/<path>][=<status>]` | Poll `http://localhost:<port>[/<path>]` for the expected status code   |
+| `exec:<command>`                  | Run `<command>` via shell; ready when it exits 0                       |
 
 If no `=<status>` is specified for HTTP probes, any non-5xx response is accepted. If `=<status>` is specified, only that exact status code is accepted.
 
