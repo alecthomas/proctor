@@ -10,7 +10,7 @@ Proctor is a local development process manager that is compatible with and exten
 
 - Procfile-compatible syntax with shell-style quoting and line continuation
 - One-shot processes (run to completion) and long-running processes
-- File watching with glob patterns and exclusions
+- File watching with glob patterns and exclusions (`.gitignore` respected automatically)
 - Hot reload on file changes with configurable debounce and signal
 - Process dependencies with `after=` for ordered startup
 - Readiness probes (TCP port, HTTP endpoint, or shell command)
@@ -148,6 +148,8 @@ echo Procfile: echo "Procfile changed"
 ```
 
 If no watch patterns are present, the process is not file-watched.
+
+Paths matching `.gitignore` rules (and the `.git/` directory) are automatically excluded from file watching. This means you don't need to manually add exclusions for directories like `node_modules/`, `target/`, `dist/`, etc.
 
 ### Options
 

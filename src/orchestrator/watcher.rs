@@ -1,8 +1,10 @@
 use crate::parser::GlobPattern;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
@@ -16,11 +18,19 @@ struct ProcessMatcher {
     name: String,
     includes: GlobSet,
     excludes: GlobSet,
+    gitignore: Arc<Gitignore>,
 }
 
 impl ProcessMatcher {
     fn matches(&self, path: &Path) -> bool {
         if self.includes.is_empty() {
+            return false;
+        }
+        if self
+            .gitignore
+            .matched_path_or_any_parents(path, path.is_dir())
+            .is_ignore()
+        {
             return false;
         }
         let matches_include = self.includes.is_match(path);
@@ -38,7 +48,8 @@ impl FileWatcher {
     pub fn new(base_dir: &Path, processes: Vec<(String, Vec<GlobPattern>, Duration)>) -> Result<Self, String> {
         let (tx, rx) = mpsc::channel();
 
-        let matchers = build_matchers(processes)?;
+        let gitignore = build_gitignore(base_dir)?;
+        let matchers = build_matchers(processes, Arc::new(gitignore))?;
         let base_dir_owned = base_dir.to_path_buf();
         let base_dir_for_watch = base_dir.to_path_buf();
 
@@ -72,7 +83,21 @@ fn normalize_pattern(pattern: &str) -> &str {
     pattern.strip_prefix("./").unwrap_or(pattern)
 }
 
-fn build_matchers(processes: Vec<(String, Vec<GlobPattern>, Duration)>) -> Result<Vec<ProcessMatcher>, String> {
+fn build_gitignore(base_dir: &Path) -> Result<Gitignore, String> {
+    let mut builder = GitignoreBuilder::new(base_dir);
+    // Always ignore .git directory
+    builder.add_line(None, ".git/").map_err(|e| e.to_string())?;
+    let gitignore_path = base_dir.join(".gitignore");
+    if gitignore_path.exists() {
+        builder.add(gitignore_path);
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
+fn build_matchers(
+    processes: Vec<(String, Vec<GlobPattern>, Duration)>,
+    gitignore: Arc<Gitignore>,
+) -> Result<Vec<ProcessMatcher>, String> {
     let mut matchers = Vec::new();
 
     for (name, patterns, _debounce) in processes {
@@ -98,6 +123,7 @@ fn build_matchers(processes: Vec<(String, Vec<GlobPattern>, Duration)>) -> Resul
             name,
             includes,
             excludes,
+            gitignore: Arc::clone(&gitignore),
         });
     }
 
@@ -200,19 +226,35 @@ mod tests {
         }
     }
 
+    fn empty_gitignore() -> Arc<Gitignore> {
+        let builder = GitignoreBuilder::new("");
+        Arc::new(builder.build().unwrap())
+    }
+
+    fn gitignore_with(patterns: &[&str]) -> Arc<Gitignore> {
+        let mut builder = GitignoreBuilder::new("");
+        for pattern in patterns {
+            builder.add_line(None, pattern).unwrap();
+        }
+        Arc::new(builder.build().unwrap())
+    }
+
     #[test]
     fn test_build_matchers_empty() {
-        let matchers = build_matchers(vec![]).unwrap();
+        let matchers = build_matchers(vec![], empty_gitignore()).unwrap();
         assert!(matchers.is_empty());
     }
 
     #[test]
     fn test_build_matchers_simple() {
-        let matchers = build_matchers(vec![(
-            "api".to_string(),
-            vec![glob("**/*.go", false)],
-            Duration::from_millis(500),
-        )])
+        let matchers = build_matchers(
+            vec![(
+                "api".to_string(),
+                vec![glob("**/*.go", false)],
+                Duration::from_millis(500),
+            )],
+            empty_gitignore(),
+        )
         .unwrap();
 
         assert_eq!(matchers.len(), 1);
@@ -221,11 +263,14 @@ mod tests {
 
     #[test]
     fn test_matcher_matches_include() {
-        let matchers = build_matchers(vec![(
-            "api".to_string(),
-            vec![glob("**/*.go", false)],
-            Duration::from_millis(500),
-        )])
+        let matchers = build_matchers(
+            vec![(
+                "api".to_string(),
+                vec![glob("**/*.go", false)],
+                Duration::from_millis(500),
+            )],
+            empty_gitignore(),
+        )
         .unwrap();
 
         assert!(matchers[0].matches(Path::new("cmd/main.go")));
@@ -235,11 +280,14 @@ mod tests {
 
     #[test]
     fn test_matcher_matches_exclude() {
-        let matchers = build_matchers(vec![(
-            "api".to_string(),
-            vec![glob("**/*.go", false), glob("**/*_test.go", true)],
-            Duration::from_millis(500),
-        )])
+        let matchers = build_matchers(
+            vec![(
+                "api".to_string(),
+                vec![glob("**/*.go", false), glob("**/*_test.go", true)],
+                Duration::from_millis(500),
+            )],
+            empty_gitignore(),
+        )
         .unwrap();
 
         assert!(matchers[0].matches(Path::new("cmd/main.go")));
@@ -248,7 +296,11 @@ mod tests {
 
     #[test]
     fn test_matcher_no_patterns() {
-        let matchers = build_matchers(vec![("api".to_string(), vec![], Duration::from_millis(500))]).unwrap();
+        let matchers = build_matchers(
+            vec![("api".to_string(), vec![], Duration::from_millis(500))],
+            empty_gitignore(),
+        )
+        .unwrap();
 
         assert!(!matchers[0].matches(Path::new("anything.go")));
     }
@@ -295,11 +347,14 @@ mod tests {
 
     #[test]
     fn test_matcher_vendor_exclusion() {
-        let matchers = build_matchers(vec![(
-            "api".to_string(),
-            vec![glob("**/*.go", false), glob("vendor/**", true)],
-            Duration::from_millis(500),
-        )])
+        let matchers = build_matchers(
+            vec![(
+                "api".to_string(),
+                vec![glob("**/*.go", false), glob("vendor/**", true)],
+                Duration::from_millis(500),
+            )],
+            empty_gitignore(),
+        )
         .unwrap();
 
         assert!(matchers[0].matches(Path::new("main.go")));
@@ -309,11 +364,14 @@ mod tests {
 
     #[test]
     fn test_matcher_multiple_extensions() {
-        let matchers = build_matchers(vec![(
-            "frontend".to_string(),
-            vec![glob("**/*.ts", false), glob("**/*.tsx", false), glob("**/*.css", false)],
-            Duration::from_millis(500),
-        )])
+        let matchers = build_matchers(
+            vec![(
+                "frontend".to_string(),
+                vec![glob("**/*.ts", false), glob("**/*.tsx", false), glob("**/*.css", false)],
+                Duration::from_millis(500),
+            )],
+            empty_gitignore(),
+        )
         .unwrap();
 
         assert!(matchers[0].matches(Path::new("src/app.ts")));
@@ -324,11 +382,14 @@ mod tests {
 
     #[test]
     fn test_matcher_exact_file() {
-        let matchers = build_matchers(vec![(
-            "echo".to_string(),
-            vec![glob("./test.txt", false)],
-            Duration::from_millis(500),
-        )])
+        let matchers = build_matchers(
+            vec![(
+                "echo".to_string(),
+                vec![glob("./test.txt", false)],
+                Duration::from_millis(500),
+            )],
+            empty_gitignore(),
+        )
         .unwrap();
 
         // Pattern ./test.txt is normalized to test.txt
@@ -360,5 +421,50 @@ mod tests {
             debouncer.get_ready(),
             vec![("api".to_string(), "handler.go".to_string())]
         );
+    }
+
+    #[test]
+    fn test_gitignore_excludes_matching_paths() {
+        let gi = gitignore_with(&["target/", "node_modules/"]);
+        let matchers = build_matchers(
+            vec![(
+                "api".to_string(),
+                vec![glob("**/*.rs", false)],
+                Duration::from_millis(500),
+            )],
+            gi,
+        )
+        .unwrap();
+
+        assert!(matchers[0].matches(Path::new("src/main.rs")));
+        assert!(!matchers[0].matches(Path::new("target/debug/main.rs")));
+        assert!(!matchers[0].matches(Path::new("node_modules/pkg/lib.rs")));
+    }
+
+    #[test]
+    fn test_gitignore_negation_whitelists() {
+        let gi = gitignore_with(&["*.log", "!important.log"]);
+        let matchers = build_matchers(
+            vec![("app".to_string(), vec![glob("**/*", false)], Duration::from_millis(500))],
+            gi,
+        )
+        .unwrap();
+
+        assert!(!matchers[0].matches(Path::new("debug.log")));
+        assert!(matchers[0].matches(Path::new("important.log")));
+    }
+
+    #[test]
+    fn test_gitignore_git_dir_excluded() {
+        let gi = gitignore_with(&[".git/"]);
+        let matchers = build_matchers(
+            vec![("app".to_string(), vec![glob("**/*", false)], Duration::from_millis(500))],
+            gi,
+        )
+        .unwrap();
+
+        assert!(!matchers[0].matches(Path::new(".git/config")));
+        assert!(!matchers[0].matches(Path::new(".git/objects/abc123")));
+        assert!(matchers[0].matches(Path::new("src/main.rs")));
     }
 }
