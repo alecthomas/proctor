@@ -396,7 +396,6 @@ impl Orchestrator {
         };
 
         let poll_interval = Duration::from_millis(10);
-        let has_long_running = self.procfile.processes.iter().any(|p| !p.oneshot);
 
         // Shutdown state
         let mut shutting_down = false;
@@ -845,21 +844,15 @@ impl Orchestrator {
                 }
             }
 
-            // Check if we should exit
-            if !has_long_running {
-                // All processes are one-shot - exit when all are done
-                let all_done = processes.values().all(|m| !m.is_running());
-                if all_done {
-                    break;
-                }
-            } else if watcher.is_none() {
-                // No file watcher - exit when all processes exit
+            // Check if we should exit: if there's a file watcher, keep
+            // blocking (even if all processes are one-shot) so that file
+            // changes can re-trigger them.
+            if watcher.is_none() {
                 let all_done = processes.values().all(|m| !m.is_running());
                 if all_done {
                     break;
                 }
             }
-            // With a file watcher and long-running processes, keep running
 
             thread::sleep(poll_interval);
         }
@@ -968,7 +961,7 @@ fn signal_name_short(sig: Signal) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::ProcessOptions;
+    use crate::parser::{GlobPattern, ProcessOptions};
 
     fn simple_procfile(processes: Vec<(&str, &str)>) -> Procfile {
         Procfile {
@@ -1058,5 +1051,36 @@ mod tests {
 
         managed.consecutive_failures = 10;
         assert_eq!(managed.calculate_backoff(), Duration::from_secs(32));
+    }
+
+    #[test]
+    fn test_oneshot_with_watch_patterns_blocks() {
+        let procfile = Procfile {
+            global_env: HashMap::new(),
+            processes: vec![ProcessDef {
+                name: "gen".to_string(),
+                watch_patterns: vec![GlobPattern {
+                    pattern: "**/*.txt".to_string(),
+                    exclude: false,
+                }],
+                options: ProcessOptions::default(),
+                command: "true".to_string(),
+                oneshot: true,
+            }],
+        };
+
+        let orchestrator = Orchestrator::new(procfile, std::env::current_dir().unwrap(), false, false);
+
+        let handle = std::thread::spawn(move || {
+            orchestrator.run().unwrap();
+        });
+
+        // Give the one-shot time to complete, then verify we're still blocking
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!handle.is_finished(), "orchestrator exited early; should block when one-shot has watch patterns");
+
+        // Send SIGINT to unblock the orchestrator
+        nix::sys::signal::kill(nix::unistd::Pid::this(), nix::sys::signal::Signal::SIGINT).unwrap();
+        handle.join().unwrap();
     }
 }
