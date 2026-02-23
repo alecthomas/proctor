@@ -29,7 +29,7 @@ EXAMPLE:
   api **/*.go !**_test.go after=migrate ready=8080: go run ./cmd/api";
 
 #[derive(Parser)]
-#[command(name = "proctor", about = "A process manager with hot reload", after_help = SYNTAX_HELP)]
+#[command(name = "proctor", version, about = "A process manager with hot reload", after_help = SYNTAX_HELP)]
 struct Cli {
     /// Path to the Procfile
     #[arg(default_value = "Procfile")]
