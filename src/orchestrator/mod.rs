@@ -624,40 +624,26 @@ impl Orchestrator {
                         }
                     }
                 } else if !shutting_down && (managed.def.oneshot && status != ProcessStatus::Success) {
-                    // One-shot process failure - retry with backoff, abort if max backoff exceeded
+                    // One-shot process failure - retry with backoff
                     managed.consecutive_failures += 1;
                     let backoff = managed.calculate_backoff();
+                    let restart_time = Instant::now() + backoff;
+                    managed.scheduled_restart = Some(restart_time);
 
-                    // Max backoff (32s) is reached at 6 failures. If we've exceeded that, abort.
-                    if managed.consecutive_failures > 6 {
-                        let msg = formatter.format_control(
-                            &name,
-                            ControlEvent::Crashed,
-                            &format!("{} (aborting after {} failures)", status, managed.consecutive_failures),
-                            exited_pid,
-                        );
-                        println!("{}", msg);
-                        shutting_down = true;
+                    let msg = formatter.format_control(&name, ControlEvent::Crashed, &status.to_string(), exited_pid);
+                    println!("{}", msg);
+
+                    let msg = if backoff.is_zero() {
+                        formatter.format_control(&name, ControlEvent::Restarting, "now", None)
                     } else {
-                        let restart_time = Instant::now() + backoff;
-                        managed.scheduled_restart = Some(restart_time);
-
-                        let msg =
-                            formatter.format_control(&name, ControlEvent::Crashed, &status.to_string(), exited_pid);
-                        println!("{}", msg);
-
-                        let msg = if backoff.is_zero() {
-                            formatter.format_control(&name, ControlEvent::Restarting, "now", None)
-                        } else {
-                            formatter.format_control(
-                                &name,
-                                ControlEvent::Restarting,
-                                &format!("in {}s", backoff.as_secs()),
-                                None,
-                            )
-                        };
-                        println!("{}", msg);
-                    }
+                        formatter.format_control(
+                            &name,
+                            ControlEvent::Restarting,
+                            &format!("in {}s", backoff.as_secs()),
+                            None,
+                        )
+                    };
+                    println!("{}", msg);
                 } else if !shutting_down && !managed.def.oneshot {
                     // Crash recovery for long-running processes (any exit is unexpected)
                     managed.consecutive_failures += 1;
@@ -1077,7 +1063,10 @@ mod tests {
 
         // Give the one-shot time to complete, then verify we're still blocking
         std::thread::sleep(Duration::from_millis(500));
-        assert!(!handle.is_finished(), "orchestrator exited early; should block when one-shot has watch patterns");
+        assert!(
+            !handle.is_finished(),
+            "orchestrator exited early; should block when one-shot has watch patterns"
+        );
 
         // Send SIGINT to unblock the orchestrator
         nix::sys::signal::kill(nix::unistd::Pid::this(), nix::sys::signal::Signal::SIGINT).unwrap();
