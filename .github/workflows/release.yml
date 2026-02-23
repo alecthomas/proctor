@@ -27,10 +27,7 @@ jobs:
           cache: true
       - name: Set version from tag
         shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          sed -i.bak "s/^version = .*/version = \"${VERSION}\"/" Cargo.toml
-          rm -f Cargo.toml.bak
+        run: yq -i -o toml ".package.version = \"${GITHUB_REF_NAME#v}\"" Cargo.toml
       - id: build
         shell: bash
         run: |
