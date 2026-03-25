@@ -36,7 +36,7 @@ jobs:
         run: |
           export TARGET="${{ matrix.arch }}-${{ matrix.target-suffix }}"
           rustup target add "${TARGET}"
-          cargo build --release --target "${TARGET}"
+          cross build --release --target "${TARGET}"
           export TARGET_PATH="target/${TARGET}/release/proctor-${TARGET}"
           mv "target/${TARGET}"/release/proctor "${TARGET_PATH}"
           bzip2 -f9 "${TARGET_PATH}"
