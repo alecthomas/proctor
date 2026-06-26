@@ -521,7 +521,7 @@ impl Orchestrator {
                             if secs >= 5 && secs % 5 == 0 && elapsed.subsec_millis() < 300 {
                                 let msg = formatter.format_control(
                                     &managed.def.name,
-                                    ControlEvent::TimedOut,
+                                    ControlEvent::Pending,
                                     &format!("probe pending ({}s)", secs),
                                     managed.pid(),
                                 );
