@@ -458,7 +458,6 @@ impl Orchestrator {
             }
 
             // Check readiness probes (every 250ms per process)
-            let probe_timeout = Duration::from_secs(30);
             let probe_interval = Duration::from_millis(250);
             let mut just_became_ready: Vec<String> = Vec::new();
             for managed in processes.values_mut() {
@@ -505,12 +504,13 @@ impl Orchestrator {
                         println!("{}", msg);
                     } else if let Some(started) = managed.ready_probe_started {
                         let elapsed = started.elapsed();
+                        let probe_timeout = managed.def.options.timeout;
                         if elapsed >= probe_timeout {
                             managed.ready_probe_started = None;
                             let msg = formatter.format_control(
                                 &managed.def.name,
                                 ControlEvent::TimedOut,
-                                "probe timed out after 30s (aborting)",
+                                &format!("probe timed out after {}s (aborting)", probe_timeout.as_secs()),
                                 managed.pid(),
                             );
                             println!("{}", msg);

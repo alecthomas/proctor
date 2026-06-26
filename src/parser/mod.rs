@@ -92,6 +92,7 @@ fn parse_declaration(decl_tokens: &[String], command: &str) -> Result<ProcessDef
 
     let mut watch_patterns = Vec::new();
     let mut options = ProcessOptions::default();
+    let mut has_timeout = false;
 
     let mut i = 1;
     while i < decl_tokens.len() {
@@ -108,6 +109,9 @@ fn parse_declaration(decl_tokens: &[String], command: &str) -> Result<ProcessDef
                 value.push('=');
                 value.push_str(&decl_tokens[i + 1]);
                 i += 2;
+            }
+            if key == "timeout" {
+                has_timeout = true;
             }
             apply_option(&mut options, key, &value, 0)?;
         } else {
@@ -137,6 +141,13 @@ fn parse_declaration(decl_tokens: &[String], command: &str) -> Result<ProcessDef
         });
     }
 
+    if has_timeout && options.ready.is_none() {
+        return Err(ParseError {
+            line: 0,
+            message: "timeout option requires a ready probe".to_string(),
+        });
+    }
+
     Ok(ProcessDef {
         name,
         watch_patterns,
@@ -157,6 +168,9 @@ fn apply_option(opts: &mut ProcessOptions, key: &str, value: &str, line_num: usi
         }
         "ready" => {
             opts.ready = Some(parse_ready_probe(value, line_num)?);
+        }
+        "timeout" => {
+            opts.timeout = parse_duration(value, line_num)?;
         }
         "signal" => {
             opts.signal = Signal::from_str(value).ok_or_else(|| ParseError {
@@ -472,6 +486,27 @@ mod tests {
         let input = "api ready=exec:: ./api";
         let err = parse(input).unwrap_err();
         assert!(err.message.contains("exec probe requires a command"));
+    }
+
+    #[test]
+    fn test_timeout_default() {
+        let input = "api ready=8080: ./api";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes[0].options.timeout, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_timeout_override() {
+        let input = "api ready=8080 timeout=60s: ./api";
+        let procfile = parse(input).unwrap();
+        assert_eq!(procfile.processes[0].options.timeout, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_timeout_requires_ready_probe() {
+        let input = "api timeout=60s: ./api";
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("timeout option requires a ready probe"));
     }
 
     #[test]

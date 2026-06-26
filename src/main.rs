@@ -19,6 +19,7 @@ PROCFILE SYNTAX:
 OPTIONS:
   after=name[,name2]   Wait for dependencies before starting
   ready=PORT           Readiness probe (<port> for TCP, http:<port>[/<path>] for HTTP)
+  timeout=30s          Readiness probe timeout (requires ready)
   signal=TERM          Reload signal (HUP, INT, TERM, KILL, USR1, USR2)
   debounce=500ms       File watch debounce interval
   dir=./path           Working directory

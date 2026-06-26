@@ -159,6 +159,7 @@ Any token matching `key=value` that is not a glob and not the process name is an
 |-------------|----------|-------------|--------------------------------------------------------|
 | `after`     | string   |             | Dependency — wait for named process to become ready    |
 | `ready`     | string   |             | Readiness probe (see [Readiness](#readiness))          |
+| `timeout`   | duration | `30s`       | Readiness probe timeout (requires `ready`)             |
 | `signal`    | string   | `TERM`      | Signal to send on reload (`HUP`, `INT`, `TERM`, etc.) |
 | `debounce`  | duration | `500ms`     | Debounce interval for file change events               |
 | `dir`       | path     | `.`         | Working directory for the process                      |
@@ -241,7 +242,7 @@ If no `=<status>` is specified for HTTP probes, any non-5xx response is accepted
 
 With no `ready` option: long-running processes are ready immediately on start; one-shot processes are ready on exit 0.
 
-Readiness polling begins when the process starts, with a 250ms interval and a 30s timeout. If the timeout is exceeded, proctor logs an error and continues (does not abort).
+Readiness polling begins when the process starts, with a 250ms interval and a 30s timeout (override per process with the `timeout` option). If the timeout is exceeded, proctor logs an error and aborts.
 
 ## Output
 

@@ -28,6 +28,7 @@ pub struct GlobPattern {
 pub struct ProcessOptions {
     pub after: Vec<String>,
     pub ready: Option<ReadyProbe>,
+    pub timeout: Duration,
     pub signal: Signal,
     pub debounce: Duration,
     pub dir: Option<String>,
@@ -39,6 +40,7 @@ impl Default for ProcessOptions {
         Self {
             after: Vec::new(),
             ready: None,
+            timeout: Duration::from_secs(30),
             signal: Signal::Term,
             debounce: Duration::from_millis(500),
             dir: None,
